@@ -1,0 +1,33 @@
+{
+  "summary": "Full E2E verification of Agrocorp Lite (freshly-imported repo). Wiped DB agrocorp_lite so admin got auto-provisioned by startup(). Wrote pytest suite (27 tests) at /app/backend/tests/backend_test.py covering: auth (initial login, forced reset, relogin, /auth/me), projects CRUD, user creation for all 3 roles + RBAC negatives, units Excel import (built openpyxl sheet matching the fuzzy header parser in server.py), post_sales sell-unit with schedule validation, accounts payment status update + notification, procurement site_manager -> admin (clarify+approve) -> accounts payment, inventory CRUD, notifications list/mark-read/mark-all, dashboard stats, and RBAC scoping (site_manager sees only own project). All 27 tests PASSED. Frontend Playwright smoke: admin login with new password, dashboard tiles render with live data (Projects=2, Units available=2, Units sold=1, Payments pending=4), sidebar navigation works to all 6 pages (Dashboard, Projects, Team, Units, Sales & Payments, Inventory, Procurement), notifications bell popover renders all 4 backend-generated events (sale_recorded, payment_received, procurement_new, procurement_paid).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Login.jsx", "issue": "Calls nav('/dashboard') during render (line 15) when user is already authenticated. Produces React warning: 'Cannot update a component (BrowserRouter) while rendering a different component (Login)'. Should be wrapped in useEffect or a <Navigate/> element.", "selector": "src/pages/Login.jsx:14-16", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional/low) Fix Login.jsx to avoid navigate() during render — use useEffect or <Navigate replace to='/dashboard'/> when already logged in."
+  ],
+  "critical_code_review_comments": [
+    "server.py uses deprecated @app.on_event('startup'/'shutdown'); works on current FastAPI but should migrate to lifespan context manager.",
+    "CORS allow_origins=['*'] combined with token auth is fine here (Bearer, not cookie) but flag for production hardening.",
+    "verify_pw silently swallows all exceptions -> may hide bcrypt config issues; ok for lite MVP.",
+    "Sidebar label is 'Team' but backend/model uses 'users' — cosmetic, no bug.",
+    "Sell-unit schedule tolerance is +/- 1 rupee (abs(diff) > 1); acceptable but undocumented in UI."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "100% smoke"},
+  "test_credentials": "Admin phone=9999999999, password reset from 9999999999 -> 'Admin@Verify1' during tests. Other users created: 9222200001/Accounts1! (accounts), 9222200002/PostSales1! (post_sales), 9222200003/SiteMgr1! (site_manager scoped to TEST_Verify Project).",
+  "seed_data_creation": "DB agrocorp_lite was dropped then re-seeded via tests: 2 projects (TEST_Verify Project, TEST_Second), 3 team users, 3 units imported via generated Excel (A-1 sold with 5-installment schedule; A-2, A-3 available), 5 payment rows (1 marked received), 1 procurement request (approved & paid), notifications for admin/accounts/site_manager.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is fully functional. If retesting, note that admin password is now 'Admin@Verify1' (was reset from '9999999999'). To reset to a fresh state, drop DB agrocorp_lite and restart backend: `mongosh --quiet --eval 'db.getSiblingDB(\"agrocorp_lite\").dropDatabase()' && sudo supervisorctl restart backend`. The backend_test.py suite is idempotent-ish only against a fresh DB (creates specific TEST_ users/projects). The old /app/backend/tests/test_lite_e2e.py references port 8100 / different DB and should be considered obsolete for this deployment.",
+  "rca_of_the_issue": "N/A — no issues found. Main-agent fixes noted in review request (missing .env files, et_xmlfile install, admin email domain .local -> .com) were verified effective: /api/health OK, initial admin login works, Excel import via openpyxl works, all role flows pass."
+}
