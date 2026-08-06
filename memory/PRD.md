@@ -103,3 +103,9 @@
 - Root cause: importer scanned only first 10 rows and required literal 'basic sale price' in header; no CSV support; numbers with commas/₹ failed to parse.
 - Fix in server.py: added _read_tabular/_read_csv (.xlsx + .csv), _detect_header (scores first 30 rows via COL_SYNS synonyms — unit/plot + area/price/charges), hardened _num (strips commas, ₹, spaces so 30,00,000 -> 3000000). Descriptive 400 with row preview if truly no header.
 - Verified by testing agent: 5/5 import tests pass (varied header + title row, CSV, classic format, negative case). Test suite at backend/tests/test_units_import.py.
+
+---
+## CVF real sheet mapped (2026-08-06)
+- Imported real 'CVF Inventory 24.07.26.xlsx' into Central Vista Farms (proj_01d7e89ba838): 47 units.
+- Extended importer for CVF header wording: FARM# -> unit_no, NET PAYABLE -> grand total; new columns cv_facing, multi_plc (2 or more PLCs), guidance_value, electricity_infra, khata_registration, sinking_fund, stamp_duty; reordered infra synonyms so DEVELOPMENT CHARGE -> infra_dev and ELECTRICITY INFRASTRUCTURE -> electricity_infra.
+- Verified: FARM# 32 -> area 7911.5, bsp 5933625, sheet_grand_total 8079622.43, multi_plc 445021.875. Testing agent 7/7 pass, no regression. Suite: backend/tests/test_cvf_import.py.
