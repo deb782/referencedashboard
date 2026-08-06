@@ -97,3 +97,9 @@
 - Re-themed app to match www.agrocorp.co.in: Cormorant Garamond serif headings + Inter body + JetBrains Mono for numbers; olive-green palette (#5a6b10 primary, #3d4a0a dark, #7a8e1a/#8fa832 light), warm cream bg (#faf8f5), beige borders (#e8e0d0), soft green-tinted shadows, cubic-bezier(0.19,1,0.22,1) easing. Updated index.css, tailwind.config.js, ui.jsx status pills; layout unchanged per user.
 - Global Search: new role-scoped backend GET /api/search (units/projects/procurement/inventory/team, min 2 chars) + GlobalSearch.jsx topbar component (debounced, ⌘K focus, arrow-key nav, grouped dropdown, click-to-navigate).
 - Verified by testing agent: 11/11 search tests pass, role scoping correct, theme regression-safe, 0 bugs.
+
+---
+## Bug fix: Excel import "Header row not found" (2026-08-06)
+- Root cause: importer scanned only first 10 rows and required literal 'basic sale price' in header; no CSV support; numbers with commas/₹ failed to parse.
+- Fix in server.py: added _read_tabular/_read_csv (.xlsx + .csv), _detect_header (scores first 30 rows via COL_SYNS synonyms — unit/plot + area/price/charges), hardened _num (strips commas, ₹, spaces so 30,00,000 -> 3000000). Descriptive 400 with row preview if truly no header.
+- Verified by testing agent: 5/5 import tests pass (varied header + title row, CSV, classic format, negative case). Test suite at backend/tests/test_units_import.py.
