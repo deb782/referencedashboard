@@ -1,0 +1,23 @@
+{
+  "summary": "Backend-only regression for /api/units/import robust header detection (Central Vista Farms bug). Wrote pytest suite at /app/backend/tests/test_units_import.py covering: (1) varied-header .xlsx with title row + 'Plot No.'/'Area (Sq. Ft)'/'Basic Price'/'Total Amount' style headers and comma-formatted numbers (30,00,000 -> 3000000), (2) .csv upload with commas, (3) classic .xlsx header regression ('UNIT NO.', 'Basic Sale Price', 'Grand Total'), (4) negative case with only 'Name,Value' returning 400 mentioning header. All 5 tests PASSED (5/5). Numeric parsing verified via GET /api/units (area_sqft=1200, bsp=3000000, infra_dev=120000 for TCVF-101; bsp=2500000 for TCVF-CSV1). Cleanup performed via Mongo (no unit DELETE endpoint exists) — CVF is back to 0 units. Existing data (Vacation Village) untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_units_import.py",
+    "/app/test_reports/pytest/units_import_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1126 lines — consider splitting importer helpers (_num, COL_SYNS, _read_tabular, _detect_header) into a units_import module for maintainability.",
+    "No DELETE /api/units/{unit_id} endpoint exists; import upsert logic is fine, but ops/testing would benefit from an admin-only delete for cleanup.",
+    "_detect_header requires unit_no + >=1 more matched field which is good; consider ignoring merged/title rows explicitly (currently handled by scoring, works)."
+  ],
+  "updated_files": ["/app/backend/tests/test_units_import.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "Admin 9999999999 / Repro@123 (worked)",
+  "seed_data_creation": "Created 4 units (TCVF-101, TCVF-102, TCVF-CSV1, TCLASSIC-1) under proj_01d7e89ba838 during tests; cleaned up via Mongo at end of run. Verified CVF now has 0 units.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug fix for 'Header row not found in Excel' on unit import is confirmed working. Reusable pytest suite lives at /app/backend/tests/test_units_import.py; the test_zzz_cleanup case wipes its own units directly in Mongo since no DELETE unit API exists.",
+  "rca of the issue": "Original importer only scanned first 10 rows and required literal phrase 'basic sale price' in header, and did not accept CSV. Fix: _read_tabular now handles .xlsx and .csv, _detect_header scores first 30 rows using COL_SYNS synonyms (unit/plot + area/price/charges), _num strips commas/₹/spaces so Indian-format numbers like 30,00,000 parse to 3000000. Verified end-to-end against 4 test scenarios."
+}

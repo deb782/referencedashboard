@@ -6,6 +6,7 @@ No email, no cron. In-app notifications only.
 from __future__ import annotations
 
 import io
+import csv
 import os
 import uuid
 import logging
@@ -471,10 +472,93 @@ async def list_units(project_id: Optional[str] = None,
 def _num(v) -> float:
     if v is None or v == "":
         return 0.0
-    try:
+    if isinstance(v, (int, float)):
         return float(v)
+    s = str(v).strip()
+    for tok in (",", "\u20b9", "Rs.", "Rs", "rs", "INR", "%", " "):
+        s = s.replace(tok, "")
+    if s in ("", "-", "--", "NA", "N/A", "nil", "Nil"):
+        return 0.0
+    try:
+        return float(s)
     except (TypeError, ValueError):
         return 0.0
+
+
+# Column synonyms for the RERA cost-sheet importer (case/space tolerant).
+COL_SYNS = {
+    "unit_no": ["unit no", "unit number", "unit", "plot no", "plot number",
+                "plot", "villa no", "flat no", "sl no", "s. no", "sr no", "site no"],
+    "extent": ["extent", "saleable area", "super built", "built up", "area",
+               "sq. ft", "sq ft", "sqft", "sq.ft", "sft", "size"],
+    "bsp": ["basic sale price", "basic sale", "basic price", "base price",
+            "bsp", "sale price", "unit price", "plot cost", "land cost"],
+    "east": ["east facing", "east"],
+    "hill": ["hill view", "hill", "lake view", "park view", "premium view"],
+    "corner": ["corner"],
+    "infra": ["infrastructure", "infra", "development charge", "idc"],
+    "legal": ["legal"],
+    "club": ["club"],
+    "maint": ["advance maintenance", "maintenance", "maint"],
+    "ifms": ["ifms", "interest free maintenance", "sinking fund"],
+    "grand": ["grand total", "total amount", "total value", "total cost",
+              "total consideration", "all inclusive", "grand"],
+}
+
+
+def _read_tabular(raw: bytes, fname: str) -> list:
+    """Return a list-of-rows from an .xlsx or .csv upload."""
+    if fname.endswith(".csv"):
+        return _read_csv(raw)
+    try:
+        wb = load_workbook(io.BytesIO(raw), data_only=True)
+        ws = wb.active
+        return [list(r) for r in ws.iter_rows(values_only=True)]
+    except Exception:
+        try:
+            return _read_csv(raw)
+        except Exception:
+            raise HTTPException(
+                400, "Unsupported or corrupt file. Please upload a .xlsx or .csv.")
+
+
+def _read_csv(raw: bytes) -> list:
+    text = raw.decode("utf-8-sig", errors="replace")
+    return [list(r) for r in csv.reader(io.StringIO(text))]
+
+
+def _detect_header(rows: list):
+    """Score the first 30 rows and pick the best header row.
+
+    A valid header must contain a unit/plot column plus at least one more
+    recognizable column. Returns (header_idx, idx_map) or (None, None).
+    """
+    best = None  # (score, i)
+    for i, row in enumerate(rows[:30]):
+        cells = [str(c or "").strip().lower() for c in row]
+        if not any(cells):
+            continue
+        matched = set()
+        for field, syns in COL_SYNS.items():
+            if any(c and any(s in c for s in syns) for c in cells):
+                matched.add(field)
+        if "unit_no" in matched and len(matched) >= 2:
+            score = len(matched)
+            if best is None or score > best[0]:
+                best = (score, i)
+    if best is None:
+        return None, None
+    header_idx = best[1]
+    header = [str(c or "").strip().lower() for c in rows[header_idx]]
+
+    def fuzzy(field):
+        for s in COL_SYNS[field]:
+            for j, h in enumerate(header):
+                if s in h:
+                    return j
+        return None
+
+    return header_idx, {k: fuzzy(k) for k in COL_SYNS}
 
 
 @api.post("/units/import")
@@ -493,40 +577,21 @@ async def import_units(project_id: str = Form(...),
     if not proj:
         raise HTTPException(404, "Project not found")
     raw = await file.read()
-    wb = load_workbook(io.BytesIO(raw), data_only=True)
-    ws = wb.active
-    rows = [[c for c in r] for r in ws.iter_rows(values_only=True)]
-    # Find header row
-    header_idx = None
-    for i, row in enumerate(rows[:10]):
-        joined = " ".join(str(c or "").lower() for c in row)
-        if "unit" in joined and "basic sale price" in joined:
-            header_idx = i
-            break
+    rows = _read_tabular(raw, (file.filename or "").lower())
+    if not rows or not any(any(r) for r in rows):
+        raise HTTPException(400, "The uploaded file is empty or unreadable")
+
+    header_idx, idx = _detect_header(rows)
     if header_idx is None:
-        raise HTTPException(400, "Header row not found in Excel")
-    header = [str(c or "").strip() for c in rows[header_idx]]
-
-    def fuzzy(fragment: str) -> Optional[int]:
-        for i, h in enumerate(header):
-            if fragment.lower() in h.strip().lower():
-                return i
-        return None
-
-    idx = {
-        "unit_no": fuzzy("unit no"),
-        "extent": fuzzy("extent"),
-        "bsp": fuzzy("basic sale"),
-        "east": fuzzy("east facing"),
-        "hill": fuzzy("hill view"),
-        "corner": fuzzy("corner"),
-        "infra": fuzzy("infrastructure"),
-        "legal": fuzzy("legal"),
-        "club": fuzzy("club"),
-        "maint": fuzzy("advance maintenance"),
-        "ifms": fuzzy("interest free maintenance") or fuzzy("ifms"),
-        "grand": fuzzy("grand total"),
-    }
+        preview = "; ".join(
+            " | ".join(str(c) for c in r if c not in (None, ""))
+            for r in rows[:6] if any(r)
+        )[:280]
+        raise HTTPException(
+            400,
+            "Could not find a header row. The sheet needs a row with a "
+            "'Unit No.'/'Plot No.' column plus price/area columns. "
+            f"First rows seen: {preview}")
 
     inserted, errors = 0, []
     for line, row in enumerate(rows[header_idx + 1:], start=header_idx + 2):
