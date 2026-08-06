@@ -82,3 +82,12 @@
 - Verified: E2E testing agent 27/27 backend tests PASS, frontend smoke PASS.
 - Admin first login: phone `9999999999` / password `9999999999` (forced reset on first login).
 - DB reset to clean state after tests so first-login experience is fresh.
+
+---
+## UI Overhaul + Role Dashboards (2026-08-06)
+- Applied 'Agrocorp Precision' design system: Outfit/Manrope/JetBrains Mono fonts, earthy green (#1A2F24) + clay accents, sharp 4px corners, 1px borders, fixed sidebar + glass topbar. index.css + tailwind.config.js rewritten; new shared UI kit at frontend/src/components/ui.jsx (Kpi, StatusPill, PageHeader, SectionCard, EmptyState, Modal, inr/inrCompact).
+- Backend /api/dashboard is now ROLE-AWARE — returns distinct payloads per role.
+- 4 role-specific dashboards under frontend/src/pages/dashboards/: Admin (Command Center), Post-Sales (Action desk), Accounts (The Ledger), Site Manager (Tactical Ops). Dispatcher in Dashboard.jsx.
+- All pages restyled (Login split-screen w/ aerial bg, ResetPassword, Projects, Users, Units, Sales, Inventory, Procurement).
+- Verified by testing agent: 4 role dashboards distinct + 5 regression flows pass, 0 bugs.
+- Demo accounts (all past forced reset): Admin 9999999999/Repro@123, Accounts 9000000001/Accounts@123, Post-Sales 9000000002/Sales@123, Site Manager 9000000003/Site@123.
