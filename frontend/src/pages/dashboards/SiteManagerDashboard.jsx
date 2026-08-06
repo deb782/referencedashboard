@@ -26,10 +26,10 @@ export default function SiteManagerDashboard({ stats, user }) {
       </PageHeader>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-        <Kpi label="Material Items" value={s.inventory_count ?? 0} icon={Boxes} tone="ink" accent="#1A2F24" className="ag-rise" mono={false} />
-        <Kpi label="Low Stock" value={low.length} icon={AlertTriangle} tone="clay" accent="#C06E52" className="ag-rise ag-rise-1" mono={false} />
-        <Kpi label="Open Requests" value={open} icon={Clock} tone="warn" accent="#D99530" className="ag-rise ag-rise-2" mono={false} />
-        <Kpi label="Approved" value={(by.approved || 0) + (by.paid || 0)} icon={CheckCircle2} tone="ok" accent="#4A5D4E" className="ag-rise ag-rise-3" mono={false} />
+        <Kpi label="Material Items" value={s.inventory_count ?? 0} icon={Boxes} tone="ink" accent="#5a6b10" className="ag-rise" mono={false} />
+        <Kpi label="Low Stock" value={low.length} icon={AlertTriangle} tone="clay" accent="#a8763f" className="ag-rise ag-rise-1" mono={false} />
+        <Kpi label="Open Requests" value={open} icon={Clock} tone="warn" accent="#c8912f" className="ag-rise ag-rise-2" mono={false} />
+        <Kpi label="Approved" value={(by.approved || 0) + (by.paid || 0)} icon={CheckCircle2} tone="ok" accent="#5a6b10" className="ag-rise ag-rise-3" mono={false} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">

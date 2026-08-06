@@ -37,9 +37,9 @@ export default function Sales() {
         subtitle={can(user, "accounts") ? "Mark each installment received on its due date, or leave it pending." : "Every sold plot and its full payment schedule."} />
 
       <div className="grid grid-cols-3 gap-6 mb-6">
-        <Kpi label="Overdue" value={buckets.overdue.length} sub={inr(sum(buckets.overdue))} icon={AlertTriangle} tone="bad" accent="#9B3922" className="ag-rise" mono={false} />
-        <Kpi label="Upcoming" value={buckets.dueSoon.length} sub={inr(sum(buckets.dueSoon))} icon={Clock} tone="warn" accent="#D99530" className="ag-rise ag-rise-1" mono={false} />
-        <Kpi label="Received" value={buckets.received.length} sub={inr(sum(buckets.received))} icon={CheckCircle2} tone="ok" accent="#4A5D4E" className="ag-rise ag-rise-2" mono={false} />
+        <Kpi label="Overdue" value={buckets.overdue.length} sub={inr(sum(buckets.overdue))} icon={AlertTriangle} tone="bad" accent="#a33b28" className="ag-rise" mono={false} />
+        <Kpi label="Upcoming" value={buckets.dueSoon.length} sub={inr(sum(buckets.dueSoon))} icon={Clock} tone="warn" accent="#c8912f" className="ag-rise ag-rise-1" mono={false} />
+        <Kpi label="Received" value={buckets.received.length} sub={inr(sum(buckets.received))} icon={CheckCircle2} tone="ok" accent="#5a6b10" className="ag-rise ag-rise-2" mono={false} />
       </div>
 
       <div className="space-y-6">

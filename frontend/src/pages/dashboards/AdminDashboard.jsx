@@ -41,11 +41,11 @@ export default function AdminDashboard({ stats, user }) {
 
         <div className="lg:col-span-3 ag-rise ag-rise-1">
           <Kpi label="Payments Pending" value={inrCompact(s.payments_pending_amount)}
-               sub={`${s.payments_pending ?? 0} installments outstanding`} icon={HandCoins} tone="warn" accent="#D99530" className="h-full" mono />
+               sub={`${s.payments_pending ?? 0} installments outstanding`} icon={HandCoins} tone="warn" accent="#c8912f" className="h-full" mono />
         </div>
         <div className="lg:col-span-3 ag-rise ag-rise-2">
           <Kpi label="Procurement Queue" value={s.procurement_pending ?? 0}
-               sub="requests awaiting your decision" icon={Package} tone="clay" accent="#C06E52" className="h-full" mono={false} />
+               sub="requests awaiting your decision" icon={Package} tone="clay" accent="#a8763f" className="h-full" mono={false} />
         </div>
       </div>
 

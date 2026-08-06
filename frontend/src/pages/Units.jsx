@@ -59,8 +59,8 @@ export default function Units() {
       </PageHeader>
 
       <div className="grid grid-cols-3 gap-6 mb-6">
-        <Kpi label="Available" value={available} tone="ok" accent="#4A5D4E" className="ag-rise" mono={false} />
-        <Kpi label="Sold" value={sold} tone="brand" accent="#3C6E9B" className="ag-rise ag-rise-1" mono={false} />
+        <Kpi label="Available" value={available} tone="ok" accent="#5a6b10" className="ag-rise" mono={false} />
+        <Kpi label="Sold" value={sold} tone="brand" accent="#3d4a0a" className="ag-rise ag-rise-1" mono={false} />
         <Kpi label="Total" value={units.length} tone="ink" className="ag-rise ag-rise-2" mono={false} />
       </div>
 

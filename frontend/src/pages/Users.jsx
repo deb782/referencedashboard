@@ -63,7 +63,7 @@ export default function Users() {
               <tr key={u.user_id} className="row" data-testid={`user-row-${u.user_id}`}>
                 <td className="td font-semibold">{u.name}</td>
                 <td className="td text-ink2 font-mono-num">{u.phone}</td>
-                <td className="td"><span className="pill" style={{ color: "#1A2F24", backgroundColor: "#1A2F2410", borderColor: "#1A2F2422" }}>{ROLE_LABELS[u.role]}</span></td>
+                <td className="td"><span className="pill" style={{ color: "#5a6b10", backgroundColor: "#5a6b1010", borderColor: "#5a6b1022" }}>{ROLE_LABELS[u.role]}</span></td>
                 <td className="td text-ink2">{u.role === "site_manager" ? projName(u.project_id) : "—"}</td>
                 <td className="td">{u.must_reset_password ? <StatusPill status="pending" label="Awaiting" /> : <StatusPill status="received" label="Done" />}</td>
                 <td className="td text-right whitespace-nowrap">

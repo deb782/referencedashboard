@@ -21,11 +21,11 @@ export default function AccountsDashboard({ stats, user }) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Kpi label="Pending Collections" value={inrCompact(s.payments_pending_amount)}
-             sub={`${s.payments_pending ?? 0} installments`} icon={Clock} tone="warn" accent="#D99530" className="ag-rise" />
+             sub={`${s.payments_pending ?? 0} installments`} icon={Clock} tone="warn" accent="#c8912f" className="ag-rise" />
         <Kpi label="Overdue" value={inrCompact(s.payments_overdue_amount)}
-             sub={`${s.payments_overdue_count ?? 0} past due date`} icon={AlertTriangle} tone="bad" accent="#9B3922" className="ag-rise ag-rise-1" />
+             sub={`${s.payments_overdue_count ?? 0} past due date`} icon={AlertTriangle} tone="bad" accent="#a33b28" className="ag-rise ag-rise-1" />
         <Kpi label="Received" value={inrCompact(s.payments_received_amount)}
-             sub={`${s.payments_received_count ?? 0} payments cleared`} icon={CheckCircle2} tone="ok" accent="#4A5D4E" className="ag-rise ag-rise-2" />
+             sub={`${s.payments_received_count ?? 0} payments cleared`} icon={CheckCircle2} tone="ok" accent="#5a6b10" className="ag-rise ag-rise-2" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">

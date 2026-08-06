@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth, ROLE_LABELS } from "@/lib/auth";
+import GlobalSearch from "@/components/GlobalSearch";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin","accounts","post_sales","site_manager"] },
@@ -102,11 +103,9 @@ export default function Layout({ children }) {
       </aside>
 
       {/* Topbar */}
-      <header className="fixed top-0 right-0 left-64 h-16 bg-white/80 backdrop-blur-xl border-b border-agborder z-30 px-8 flex items-center justify-between">
-        <div className="overline hidden sm:block">
-          {ROLE_LABELS[user?.role]} · Operations
-        </div>
-        <div className="flex items-center gap-2 ml-auto">
+      <header className="fixed top-0 right-0 left-64 h-16 bg-white/80 backdrop-blur-xl border-b border-agborder z-30 px-8 flex items-center justify-between gap-6">
+        <GlobalSearch />
+        <div className="flex items-center gap-2 shrink-0">
           {/* Notifications */}
           <div className="relative" ref={notifRef}>
             <button onClick={() => setShowNotifs(v => !v)} className="relative w-10 h-10 rounded-sm hover:bg-surfacealt flex items-center justify-center transition-colors duration-200" data-testid="notif-bell">

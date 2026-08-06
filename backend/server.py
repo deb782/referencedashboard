@@ -964,6 +964,75 @@ async def dashboard(user: User = Depends(get_current_user)):
     return base
 
 
+# ----- global search -----------------------------------------------------
+@api.get("/search")
+async def global_search(q: str = "", user: User = Depends(get_current_user)):
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"results": []}
+    rx = {"$regex": q, "$options": "i"}
+    results: list[dict] = []
+    is_sm = user.role == "site_manager"
+    scope = {"project_id": user.project_id} if (is_sm and user.project_id) else {}
+
+    # Units (plots) — admin, post_sales, accounts see all; site_manager scoped
+    if user.role in ("admin", "post_sales", "accounts", "site_manager"):
+        uq = {**scope, "$or": [{"plot_number": rx}, {"buyer_name": rx}, {"buyer_contact": rx}]}
+        for u in await db.units.find(uq, {"_id": 0}).limit(6).to_list(6):
+            results.append({
+                "type": "unit", "id": u["unit_id"],
+                "label": f"Plot {u.get('plot_number')}",
+                "sublabel": (u.get("buyer_name") and f"{u['status'].title()} · {u['buyer_name']}") or u.get("status", "").title(),
+                "link": "/units",
+            })
+
+    # Projects — admin, post_sales, accounts
+    if user.role in ("admin", "post_sales", "accounts"):
+        for p in await db.projects.find({"$or": [{"name": rx}, {"location": rx}]}, {"_id": 0}).limit(5).to_list(5):
+            results.append({
+                "type": "project", "id": p["project_id"], "label": p.get("name"),
+                "sublabel": p.get("location") or "Project",
+                "link": "/projects" if user.role == "admin" else "/units",
+            })
+
+    # Procurement — admin, accounts (all), site_manager (own project)
+    if user.role in ("admin", "accounts", "site_manager"):
+        pq = {**scope, "subject": rx}
+        for r in await db.procurement.find(pq, {"_id": 0}).limit(6).to_list(6):
+            results.append({
+                "type": "procurement", "id": r["request_id"], "label": r.get("subject"),
+                "sublabel": f"{r.get('status', '').replace('_', ' ').title()} · {r.get('priority', '')}",
+                "link": "/procurement",
+            })
+
+    # Inventory — admin (all), site_manager (own)
+    if user.role in ("admin", "site_manager"):
+        for it in await db.inventory.find({**scope, "name": rx}, {"_id": 0}).limit(6).to_list(6):
+            results.append({
+                "type": "inventory", "id": it["item_id"], "label": it.get("name"),
+                "sublabel": f"{it.get('quantity')} {it.get('unit')} in stock",
+                "link": "/inventory",
+            })
+
+    # Team — admin only
+    if user.role == "admin":
+        for m in await db.users.find({"$or": [{"name": rx}, {"phone": rx}]}, {"_id": 0}).limit(5).to_list(5):
+            results.append({
+                "type": "user", "id": m["user_id"], "label": m.get("name"),
+                "sublabel": f"{ROLE_LABELS_PY.get(m.get('role'), m.get('role'))} · {m.get('phone')}",
+                "link": "/users",
+            })
+
+    return {"results": results[:20]}
+
+
+ROLE_LABELS_PY = {
+    "admin": "Admin", "accounts": "Accounts",
+    "post_sales": "Post-Sales Rep", "site_manager": "Site Manager",
+}
+
+
+
 # ----- startup ------------------------------------------------------------
 app.include_router(api)
 

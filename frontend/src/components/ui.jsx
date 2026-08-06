@@ -51,20 +51,20 @@ export function Kpi({ label, value, sub, icon: Icon, tone = "ink", accent, class
 }
 
 const STATUS_STYLES = {
-  available: { c: "#4A5D4E", label: "Available" },
-  sold: { c: "#3C6E9B", label: "Sold" },
-  pending: { c: "#D99530", label: "Pending" },
-  received: { c: "#4A5D4E", label: "Received" },
-  overdue: { c: "#9B3922", label: "Overdue" },
-  pending_admin: { c: "#D99530", label: "Awaiting Admin" },
-  pending_clarification: { c: "#C06E52", label: "Needs Clarification" },
-  approved: { c: "#3C6E9B", label: "Approved" },
-  paid: { c: "#4A5D4E", label: "Paid" },
-  rejected: { c: "#9B3922", label: "Rejected" },
-  low: { c: "#5C5C58", label: "Low" },
-  medium: { c: "#3C6E9B", label: "Medium" },
-  high: { c: "#C06E52", label: "High" },
-  urgent: { c: "#9B3922", label: "Urgent" },
+  available: { c: "#5a6b10", label: "Available" },
+  sold: { c: "#3d4a0a", label: "Sold" },
+  pending: { c: "#c8912f", label: "Pending" },
+  received: { c: "#5a6b10", label: "Received" },
+  overdue: { c: "#a33b28", label: "Overdue" },
+  pending_admin: { c: "#c8912f", label: "Awaiting Admin" },
+  pending_clarification: { c: "#a8763f", label: "Needs Clarification" },
+  approved: { c: "#5a6b10", label: "Approved" },
+  paid: { c: "#3d4a0a", label: "Paid" },
+  rejected: { c: "#a33b28", label: "Rejected" },
+  low: { c: "#718096", label: "Low" },
+  medium: { c: "#5a6b10", label: "Medium" },
+  high: { c: "#c8912f", label: "High" },
+  urgent: { c: "#a33b28", label: "Urgent" },
 };
 
 export function StatusPill({ status, label, dot = true }) {

@@ -19,11 +19,11 @@ export default function PostSalesDashboard({ stats, user }) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Kpi label="Plots Available" value={s.units_available ?? 0}
-             sub="ready to book" icon={Home} tone="ok" accent="#4A5D4E" className="ag-rise" mono={false} />
+             sub="ready to book" icon={Home} tone="ok" accent="#5a6b10" className="ag-rise" mono={false} />
         <Kpi label="Plots Sold" value={s.units_sold ?? 0}
-             sub="across all projects" icon={CheckCircle2} tone="brand" accent="#1A2F24" className="ag-rise ag-rise-1" mono={false} />
+             sub="across all projects" icon={CheckCircle2} tone="brand" accent="#5a6b10" className="ag-rise ag-rise-1" mono={false} />
         <Kpi label="Sales Value Booked" value={inrCompact(s.sales_booked)}
-             sub={inr(s.sales_booked)} icon={TrendingUp} tone="ink" accent="#C06E52" className="ag-rise ag-rise-2" />
+             sub={inr(s.sales_booked)} icon={TrendingUp} tone="ink" accent="#a8763f" className="ag-rise ag-rise-2" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
