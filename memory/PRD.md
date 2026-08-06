@@ -91,3 +91,9 @@
 - All pages restyled (Login split-screen w/ aerial bg, ResetPassword, Projects, Users, Units, Sales, Inventory, Procurement).
 - Verified by testing agent: 4 role dashboards distinct + 5 regression flows pass, 0 bugs.
 - Demo accounts (all past forced reset): Admin 9999999999/Repro@123, Accounts 9000000001/Accounts@123, Post-Sales 9000000002/Sales@123, Site Manager 9000000003/Site@123.
+
+---
+## Agrocorp.co.in Theme + Global Search (2026-08-06)
+- Re-themed app to match www.agrocorp.co.in: Cormorant Garamond serif headings + Inter body + JetBrains Mono for numbers; olive-green palette (#5a6b10 primary, #3d4a0a dark, #7a8e1a/#8fa832 light), warm cream bg (#faf8f5), beige borders (#e8e0d0), soft green-tinted shadows, cubic-bezier(0.19,1,0.22,1) easing. Updated index.css, tailwind.config.js, ui.jsx status pills; layout unchanged per user.
+- Global Search: new role-scoped backend GET /api/search (units/projects/procurement/inventory/team, min 2 chars) + GlobalSearch.jsx topbar component (debounced, ⌘K focus, arrow-key nav, grouped dropdown, click-to-navigate).
+- Verified by testing agent: 11/11 search tests pass, role scoping correct, theme regression-safe, 0 bugs.
