@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { apiError } from "@/lib/api";
@@ -12,7 +12,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   if (user && !user.must_reset_password) {
-    nav("/dashboard", { replace: true });
+    return <Navigate to="/dashboard" replace />;
   }
 
   const submit = async (e) => {

@@ -69,3 +69,16 @@
 - **P1:** In-app comment thread on procurement requests instead of a single admin_note
 - **P2:** Simple daily reminder page for accounts (no email, just an in-app "today's due" view)
 - **P2:** Site manager can tie approved procurement to inventory line items (auto-append quantities)
+
+---
+## Import & Setup log (2026-08-06)
+- Imported existing GitHub repo `InternalLiteApp` (Agrocorp Lite) into /app.
+- Fixes applied to make it runnable:
+  - Created `backend/.env` (MONGO_URL, DB_NAME=agrocorp_lite, JWT_SECRET, ADMIN_PHONE, ADMIN_EMAIL).
+  - Created `frontend/.env` (REACT_APP_BACKEND_URL preview URL).
+  - Installed missing python dep `et_xmlfile` (openpyxl transitive) + pinned in requirements.txt.
+  - Changed ADMIN_EMAIL `.local` -> `.com` (email-validator rejects reserved `.local`).
+  - Fixed Login.jsx navigate-during-render warning -> `<Navigate replace/>`.
+- Verified: E2E testing agent 27/27 backend tests PASS, frontend smoke PASS.
+- Admin first login: phone `9999999999` / password `9999999999` (forced reset on first login).
+- DB reset to clean state after tests so first-login experience is fresh.
