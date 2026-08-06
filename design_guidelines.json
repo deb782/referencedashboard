@@ -1,0 +1,142 @@
+{
+  "theme": "Agrocorp Precision (Swiss Earth)",
+  "concept": "A high-end, structural b2b operations console. Marries the precision of Swiss Grid design (essential for data-heavy apps) with an earthy, organic palette suitable for a real-estate/land-developer. Replaces generic SaaS 'college project' aesthetics with a tactical, architectural authority.",
+  "typography": {
+    "headings": {
+      "family": "Cabinet Grotesk, system-ui, sans-serif",
+      "weights": ["500", "700", "800"],
+      "usage": "All dashboard titles, KPI numbers, and modal headers. Creates an architectural, grounded feel."
+    },
+    "body": {
+      "family": "Manrope, system-ui, sans-serif",
+      "weights": ["400", "500", "600"],
+      "usage": "Standard body copy, form labels, small text."
+    },
+    "mono": {
+      "family": "JetBrains Mono, monospace",
+      "weights": ["400", "500"],
+      "usage": "MANDATORY for all financial numbers (INR ₹), Plot IDs, PO Numbers, and dates. Ensures vertical alignment in tables."
+    },
+    "scale_rules": {
+      "h1": "text-3xl md:text-4xl tracking-tight font-bold",
+      "h2": "text-xl md:text-2xl tracking-tight font-semibold",
+      "kpi_number": "text-4xl md:text-5xl font-extrabold tracking-tighter",
+      "overline": "text-xs uppercase tracking-[0.15em] font-bold"
+    }
+  },
+  "colors": {
+    "background": {
+      "page": "#F6F6F4",
+      "surface": "#FFFFFF",
+      "surface_alt": "#F1F1EE"
+    },
+    "text": {
+      "primary": "#141514",
+      "secondary": "#5C5C58",
+      "disabled": "#A3A39F"
+    },
+    "brand": {
+      "primary": "#1A2F24",
+      "primary_hover": "#112119",
+      "accent_clay": "#C06E52",
+      "accent_moss": "#4A5D4E",
+      "accent_sand": "#E6E2D6"
+    },
+    "status": {
+      "available_received": "#4A5D4E",
+      "pending_low_stock": "#D99530",
+      "sold_overdue": "#9B3922"
+    },
+    "borders": {
+      "subtle": "#E5E4E0",
+      "focus": "#1A2F24"
+    }
+  },
+  "grids_and_layouts": {
+    "spacing_system": "Generous spacing. Use p-6 or p-8 inside cards. Gap-6 between grid items.",
+    "dashboard_grid": "Bento Protocol Mode B (High Density). Base grid: grid-cols-1 md:grid-cols-4 lg:grid-cols-12 gap-6.",
+    "sidebar": "w-64 fixed left-0 top-0 bottom-0 border-r border-[#E5E4E0] bg-white z-40. Contains role-filtered nav.",
+    "topbar": "h-16 fixed top-0 right-0 left-64 border-b border-[#E5E4E0] bg-white/80 backdrop-blur-xl z-30 px-8 flex justify-between items-center. DO NOT make it fully transparent.",
+    "main_content": "ml-64 pt-16 min-h-screen bg-[#F6F6F4] p-8",
+    "corners": "Rounded-sm (4px) maximum. No pill-shaped cards or 12px radii. Sharp, architectural edges."
+  },
+  "role_dashboards_strategy": {
+    "Admin": {
+      "layout": "Command Center",
+      "components": "1x Massive KPI (Total Sales Booked) col-span-12 lg:col-span-6. 2x Secondary KPIs (Payments Pending, Procurement Queue) col-span-6 lg:col-span-3 each. Below: Wide Bento tables for 'Recent Activity' and 'Procurement Approvals'.",
+      "focus": "High-level oversight, unblocking bottlenecks."
+    },
+    "Post-Sales Rep": {
+      "layout": "Action-Oriented Split",
+      "components": "Top: KPI strip (Available, Sold, Sales Value). Body: Left 2/3 is a dense 'Plot Inventory' table with status pills. Right 1/3 is a sticky 'Quick Action' sidebar containing the 'Mark Sold' form (buyer details, payment schedule generation).",
+      "focus": "Speed of marking inventory as sold."
+    },
+    "Accounts": {
+      "layout": "The Ledger",
+      "components": "90% of screen real estate dedicated to Data Tables. Use JetBrains Mono for all amounts. Top horizontal strip: Pending (Red), Received (Green). Tables: 'Payment Watchlist' and 'Approved Procurements Awaiting PO'.",
+      "focus": "Financial accuracy, clearing pending items."
+    },
+    "Site Manager": {
+      "layout": "Tactical Operations",
+      "components": "Visual 'Material Inventory' cards showing health bars. Prominent 'Low Stock' alerts in Clay/Terracotta. Right column: 'My Procurement Requests' timeline showing approval status.",
+      "focus": "Material availability, raising requests fast."
+    }
+  },
+  "visual_enhancers": {
+    "borders": "Expose the skeleton. Use 1px solid borders (#E5E4E0) on all cards. Remove generic drop shadows. The UI should look like a structured blueprint.",
+    "glassmorphism": "Used ONLY for the sticky topbar (bg-white/80 backdrop-blur-xl border-b). Never use on data cards.",
+    "empty_states": "Do not leave empty space. Use the provided aerial view image as a subtle, low-opacity background for empty states or the auth screen, overlaid with white.",
+    "status_pills": "Rectangular (rounded-sm), not fully rounded. 1px border matching the text color, 10% opacity background of the text color. (e.g., text-[#9B3922] bg-[#9B3922]/10 border-[#9B3922]/20)."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#1A2F24] text-white rounded-sm px-4 py-2 text-sm font-medium hover:bg-[#112119] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-[#1A2F24]",
+      "secondary": "bg-white text-[#1A2F24] border border-[#E5E4E0] rounded-sm px-4 py-2 text-sm font-medium hover:bg-[#F6F6F4] transition-colors",
+      "danger": "bg-[#9B3922] text-white rounded-sm px-4 py-2 text-sm font-medium hover:bg-[#7A2D1B] transition-colors"
+    },
+    "inputs": {
+      "style": "w-full rounded-sm border border-[#E5E4E0] bg-white px-3 py-2 text-sm text-[#141514] focus:outline-none focus:ring-1 focus:ring-[#1A2F24] focus:border-[#1A2F24]"
+    },
+    "tables": {
+      "style": "w-full text-left border-collapse",
+      "header": "text-xs font-bold uppercase tracking-widest text-[#5C5C58] border-b-2 border-[#E5E4E0] py-3 px-4",
+      "row": "border-b border-[#E5E4E0] hover:bg-[#F1F1EE] transition-colors",
+      "cell": "py-3 px-4 text-sm align-middle"
+    },
+    "cards": {
+      "style": "bg-white border border-[#E5E4E0] rounded-sm flex flex-col p-6"
+    }
+  },
+  "motion": {
+    "hover_states": "All interactive rows and cards must have a subtle hover state. For rows: bg-[#F1F1EE]. For cards: border-[#1A2F24].",
+    "transitions": "Use specific properties: transition-colors duration-200, transition-transform duration-200. NEVER use 'transition-all'.",
+    "modals": "Fade in with a slight upward translation (translate-y-2 to translate-y-0)."
+  },
+  "accessibility": {
+    "contrast": "Ensure all text meets WCAG AA guidelines. The #5C5C58 secondary text on #FFFFFF is 4.5:1.",
+    "focus": "All buttons and inputs must have visible focus rings (focus:ring-2).",
+    "data_testid": "MANDATORY on all buttons, links, inputs, and tab triggers."
+  },
+  "image_urls": {
+    "auth_background": {
+      "url": "https://images.unsplash.com/photo-1771131825971-af45a242808c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwxfHxhZXJpYWwlMjB2aWV3JTIwbGFuZCUyMHBsb3QlMjBuYXR1cmV8ZW58MHx8fHwxNzg2MDA1NTk5fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Aerial view of agricultural fields and plots. Use this for the Login page background (with a heavy overlay or positioned on one half of the screen) to ground the app in its real-estate/land domain."
+    }
+  },
+  "instructions_to_main_agent": [
+    "1. Replace the plain white sidebar/emerald-900 look with the 'Agrocorp Precision' theme. Install 'lucide-react' for crisp iconography if not present.",
+    "2. Add Google Fonts 'Cabinet Grotesk' (or outfit/sans), 'Manrope', and 'JetBrains Mono' to index.css.",
+    "3. Overhaul the Routing structure to support 4 distinct dashboard homepages based on user role (Admin, Post-Sales, Accounts, Site Manager).",
+    "4. Refactor standard html tables to follow the high-density grid approach. Use JetBrains Mono for all numeric columns (Currency, POs, Dates).",
+    "5. Do NOT use standard Shadcn rounded-xl cards. Override all border-radii to rounded-sm (4px) and remove generic drop-shadows. Rely on 1px solid borders.",
+    "6. Build the 'Mark Sold' Modal for Post-Sales Reps with an editable payment schedule table.",
+    "7. Format all currency as INR (₹) utilizing standard local string formatting."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not use generic SaaS defaults. Embed the 'Agrocorp' architectural persona.",
+    "Avoid centered text layouts; left-align data for scannability.",
+    "Use JetBrains Mono for data. Do NOT apply global 'transition-all'.",
+    "Ensure the Topbar is NOT transparent (use backdrop-blur-xl bg-white/80).",
+    "Add 'data-testid' to ALL interactive elements."
+  ]
+}
