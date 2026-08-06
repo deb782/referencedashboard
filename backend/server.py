@@ -488,21 +488,34 @@ def _num(v) -> float:
 # Column synonyms for the RERA cost-sheet importer (case/space tolerant).
 COL_SYNS = {
     "unit_no": ["unit no", "unit number", "unit", "plot no", "plot number",
-                "plot", "villa no", "flat no", "sl no", "s. no", "sr no", "site no"],
+                "plot", "farm#", "farm no", "farm number", "farm", "villa no",
+                "flat no", "sl no", "s. no", "sr no", "site no"],
     "extent": ["extent", "saleable area", "super built", "built up", "area",
                "sq. ft", "sq ft", "sqft", "sq.ft", "sft", "size"],
     "bsp": ["basic sale price", "basic sale", "basic price", "base price",
             "bsp", "sale price", "unit price", "plot cost", "land cost"],
+    "guidance": ["guidance value", "guidance"],
     "east": ["east facing", "east"],
     "hill": ["hill view", "hill", "lake view", "park view", "premium view"],
     "corner": ["corner"],
-    "infra": ["infrastructure", "infra", "development charge", "idc"],
+    "cv_facing": ["cv facing", "cv view", "cauvery"],
+    "multi_plc": ["2 or more", "two or more", "more plc", "multiple plc",
+                  "2 or more plcs"],
+    "infra": ["development charge", "idc", "infrastructure & dev",
+              "infrastructure and dev", "infra & dev", "development",
+              "infrastructure", "infra"],
+    "electricity": ["electricity infrastructure", "electricity", "eb charge",
+                    "power infrastructure"],
     "legal": ["legal"],
+    "khata": ["khata & registration", "khata", "registration"],
     "club": ["club"],
     "maint": ["advance maintenance", "maintenance", "maint"],
-    "ifms": ["ifms", "interest free maintenance", "sinking fund"],
-    "grand": ["grand total", "total amount", "total value", "total cost",
-              "total consideration", "all inclusive", "grand"],
+    "ifms": ["ifms", "interest free maintenance"],
+    "sinking": ["sinking fund", "sinking"],
+    "stamp": ["stamp duty", "stamp"],
+    "grand": ["net payable", "total payable", "net amount", "grand total",
+              "total amount", "total value", "total cost", "total consideration",
+              "all inclusive", "payable", "grand"],
 }
 
 
@@ -606,20 +619,31 @@ async def import_units(project_id: str = Form(...),
                 plot = plot[:-2]
             area = _num(row[idx["extent"]] if idx["extent"] is not None else 0)
             bsp = _num(row[idx["bsp"]] if idx["bsp"] is not None else 0)
+
+            def cell(field):
+                return _num(row[idx[field]]) if idx.get(field) is not None else 0.0
+
             plc = {
-                "east_facing": _num(row[idx["east"]] if idx["east"] is not None else 0),
-                "hill_view": _num(row[idx["hill"]] if idx["hill"] is not None else 0),
-                "corner": _num(row[idx["corner"]] if idx["corner"] is not None else 0),
+                "east_facing": cell("east"),
+                "hill_view": cell("hill"),
+                "corner": cell("corner"),
+                "cv_facing": cell("cv_facing"),
+                "multi_plc": cell("multi_plc"),
             }
             other = {
                 "bsp": bsp,
-                "infra_dev": _num(row[idx["infra"]] if idx["infra"] is not None else 0),
-                "legal": _num(row[idx["legal"]] if idx["legal"] is not None else 0),
-                "club": _num(row[idx["club"]] if idx["club"] is not None else 0),
-                "maintenance": _num(row[idx["maint"]] if idx["maint"] is not None else 0),
-                "ifms": _num(row[idx["ifms"]] if idx["ifms"] is not None else 0),
+                "guidance_value": cell("guidance"),
+                "infra_dev": cell("infra"),
+                "electricity_infra": cell("electricity"),
+                "legal": cell("legal"),
+                "khata_registration": cell("khata"),
+                "club": cell("club"),
+                "maintenance": cell("maint"),
+                "ifms": cell("ifms"),
+                "sinking_fund": cell("sinking"),
+                "stamp_duty": cell("stamp"),
                 "gst_rate": 0.18,
-                "sheet_grand_total": _num(row[idx["grand"]] if idx["grand"] is not None else 0),
+                "sheet_grand_total": cell("grand"),
             }
             existing = await db.units.find_one(
                 {"project_id": project_id, "plot_number": plot},

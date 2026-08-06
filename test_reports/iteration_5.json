@@ -1,0 +1,24 @@
+{
+  "summary": "Backend-only regression for CVF real-format importer (FARM#/NET PAYABLE/CV FACING PLC/2 OR MORE PLCs and other CVF-specific columns). New pytest suite /app/backend/tests/test_cvf_import.py (7 tests, all PASSED): (1) CVF real-format .xlsx with exact 24-column header imports into scratch project 'TEST_CVF_Import' — FARM# 32 correctly maps to plot_number='32', area_sqft=7911.5, other_charges.bsp=5933625, other_charges.sheet_grand_total=8079622.43 (NET PAYABLE), plc_details.multi_plc=445021.875 ('2 OR MORE PLCs'); (2) existing proj_01d7e89ba838 has exactly 47 units, all numeric plot_number, all sheet_grand_total>0, plot '32' present with grand 8079622.43; (3) idempotent re-import — count stays 2, no duplicate plot_numbers; (4a) classic Vacation Village 'UNIT NO./Grand Total' header still imports; (4b) CSV with commas still imports (2500000 parsed from '25,00,000'); (4c) title-row + 'Plot No.'/'Total Amount' variant still imports; (5) negative 'Name,Value' returns 400 mentioning 'header' (no 500). Additional smoke test: real /tmp/cvf.xlsx imported into a fresh scratch project inserted=47, errors=[], FARM# 32 verified. Scratch project cleaned up via DELETE /api/projects/{id} (cascades units). No touch to proj_01d7e89ba838 or proj_53fb360c1f0a — confirmed post-run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_cvf_import.py",
+    "/app/test_reports/pytest/cvf_import_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1150 lines — consider extracting importer (COL_SYNS, _detect_header, _read_tabular, _num, import_units) into a units_import.py module.",
+    "In COL_SYNS, 'stamp' synonym 'stamp' could accidentally match a 'STAMP' header outside 'STAMP DUTY' context; currently fine but fragile if new columns are added.",
+    "_detect_header requires unit_no + >=1 more matched fields — good; still scans only 30 rows which is fine for RERA sheets.",
+    "No DELETE /api/units/{unit_id} endpoint; project delete cascades units (fine for cleanup)."
+  ],
+  "updated_files": ["/app/backend/tests/test_cvf_import.py"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "Admin 9999999999 / Repro@123 (worked)",
+  "seed_data_creation": "Created scratch project 'TEST_CVF_Import' + 4 units inside it during the pytest run — deleted at module teardown via DELETE /api/projects/{id}. Also created 'TEST_CVF_RealFile' in a standalone smoke test and deleted it. Verified no scratch projects/units remain after tests.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "CVF real-format importer is fully verified. Reusable suite: /app/backend/tests/test_cvf_import.py. Real CVF data (proj_01d7e89ba838, 47 units incl. plot 32 => 8079622.43 / multi_plc 445021.875) is intact and must not be wiped. Prior suite /app/backend/tests/test_units_import.py still exists and covers pre-CVF header detection.",
+  "rca of the issue": "N/A — no bugs found this iteration. CVF-specific synonyms (farm#, net payable, cv facing plc, 2 or more plcs, guidance value, electricity infrastructure, khata & registration, sinking fund, stamp duty) and the reordering of 'development charge' before 'infrastructure' in COL_SYNS['infra'] all behave as intended; ELECTRICITY INFRASTRUCTURE CHARGES maps to other_charges.electricity_infra (not infra_dev), DEVELOPMENT CHARGE maps to other_charges.infra_dev, and NET PAYABLE maps to sheet_grand_total."
+}
