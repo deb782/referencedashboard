@@ -831,24 +831,137 @@ async def mark_all_read(user: User = Depends(get_current_user)):
 
 
 # ----- dashboard ---------------------------------------------------------
+async def _sum_amount(coll, match: dict) -> float:
+    cur = coll.aggregate([{"$match": match},
+                          {"$group": {"_id": None, "s": {"$sum": "$amount"}}}])
+    rows = await cur.to_list(1)
+    return float(rows[0]["s"]) if rows else 0.0
+
+
+async def _sum_field(coll, match: dict, field: str) -> float:
+    cur = coll.aggregate([{"$match": match},
+                          {"$group": {"_id": None, "s": {"$sum": f"${field}"}}}])
+    rows = await cur.to_list(1)
+    return float(rows[0]["s"]) if rows else 0.0
+
+
 @api.get("/dashboard")
 async def dashboard(user: User = Depends(get_current_user)):
-    proj_q = {}
+    today = datetime.now(timezone.utc).date().isoformat()
+    proj_q: dict = {}
     if user.role == "site_manager" and user.project_id:
         proj_q = {"project_id": user.project_id}
+
+    # ---- shared counts (kept for backward compatibility) ----
     projects = await db.projects.count_documents(proj_q)
     units_available = await db.units.count_documents({**proj_q, "status": "available"})
     units_sold = await db.units.count_documents({**proj_q, "status": "sold"})
     payments_pending = await db.payments.count_documents({**proj_q, "status": "pending"})
     procurement_pending = await db.procurement.count_documents(
         {**proj_q, "status": {"$in": ["pending_admin", "pending_clarification"]}})
-    return {
+
+    base = {
+        "role": user.role,
         "projects": projects,
         "units_available": units_available,
         "units_sold": units_sold,
         "payments_pending": payments_pending,
         "procurement_pending": procurement_pending,
     }
+
+    # ================= ADMIN =================
+    if user.role == "admin":
+        sales_booked = await _sum_field(db.units, {"status": "sold"}, "final_price")
+        pending_amt = await _sum_amount(db.payments, {"status": "pending"})
+        received_amt = await _sum_amount(db.payments, {"status": "received"})
+        team = await db.users.count_documents({})
+        approvals = await db.procurement.find(
+            {"status": {"$in": ["pending_admin", "pending_clarification"]}},
+            {"_id": 0}).sort("requested_at", -1).limit(6).to_list(6)
+        recent_sales = await db.units.find(
+            {"status": "sold"}, {"_id": 0}).sort("sold_at", -1).limit(6).to_list(6)
+        proc_paid = await db.procurement.count_documents({"status": "paid"})
+        base.update({
+            "sales_booked": sales_booked,
+            "payments_pending_amount": pending_amt,
+            "payments_received_amount": received_amt,
+            "team_members": team,
+            "procurement_approvals": approvals,
+            "procurement_paid": proc_paid,
+            "recent_sales": recent_sales,
+        })
+        return base
+
+    # ================= POST-SALES =================
+    if user.role == "post_sales":
+        sales_booked = await _sum_field(db.units, {"status": "sold"}, "final_price")
+        my_sales = await db.units.count_documents({"status": "sold", "sold_by": user.user_id})
+        my_value = await _sum_field(db.units, {"status": "sold", "sold_by": user.user_id}, "final_price")
+        recent_sales = await db.units.find(
+            {"status": "sold"}, {"_id": 0}).sort("sold_at", -1).limit(8).to_list(8)
+        base.update({
+            "sales_booked": sales_booked,
+            "my_sales_count": my_sales,
+            "my_sales_value": my_value,
+            "recent_sales": recent_sales,
+        })
+        return base
+
+    # ================= ACCOUNTS =================
+    if user.role == "accounts":
+        pending_amt = await _sum_amount(db.payments, {"status": "pending"})
+        overdue_q = {"status": "pending", "due_date": {"$lt": today}}
+        overdue_count = await db.payments.count_documents(overdue_q)
+        overdue_amt = await _sum_amount(db.payments, overdue_q)
+        received_count = await db.payments.count_documents({"status": "received"})
+        received_amt = await _sum_amount(db.payments, {"status": "received"})
+        awaiting_po = await db.procurement.find(
+            {"status": "approved"}, {"_id": 0}).sort("admin_action_at", -1).limit(8).to_list(8)
+        watchlist = await db.payments.find(
+            {"status": "pending"}, {"_id": 0}).sort("due_date", 1).limit(10).to_list(10)
+        # enrich watchlist with plot/buyer
+        unit_ids = list({p["unit_id"] for p in watchlist})
+        units = await db.units.find({"unit_id": {"$in": unit_ids}},
+                                    {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1}).to_list(200)
+        umap = {u["unit_id"]: u for u in units}
+        for p in watchlist:
+            u = umap.get(p["unit_id"], {})
+            p["plot_number"] = u.get("plot_number")
+            p["buyer_name"] = u.get("buyer_name")
+        base.update({
+            "payments_pending_amount": pending_amt,
+            "payments_overdue_count": overdue_count,
+            "payments_overdue_amount": overdue_amt,
+            "payments_received_count": received_count,
+            "payments_received_amount": received_amt,
+            "procurement_awaiting_po": awaiting_po,
+            "watchlist": watchlist,
+        })
+        return base
+
+    # ================= SITE MANAGER =================
+    if user.role == "site_manager":
+        inv_q = proj_q
+        inventory_count = await db.inventory.count_documents(inv_q)
+        low_stock = await db.inventory.find(
+            {**inv_q, "quantity": {"$lte": 10}}, {"_id": 0}).sort("quantity", 1).limit(8).to_list(8)
+        my_proc_q = {}
+        if user.project_id:
+            my_proc_q = {"project_id": user.project_id}
+        proc_by_status = {}
+        for st in ["pending_admin", "pending_clarification", "approved", "paid", "rejected"]:
+            proc_by_status[st] = await db.procurement.count_documents({**my_proc_q, "status": st})
+        recent_proc = await db.procurement.find(
+            my_proc_q, {"_id": 0}).sort("requested_at", -1).limit(8).to_list(8)
+        base.update({
+            "inventory_count": inventory_count,
+            "low_stock": low_stock,
+            "procurement_by_status": proc_by_status,
+            "recent_procurement": recent_proc,
+        })
+        return base
+
+    return base
 
 
 # ----- startup ------------------------------------------------------------

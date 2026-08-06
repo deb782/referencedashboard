@@ -1,0 +1,27 @@
+{
+  "summary": "Verified role-specific dashboards overhaul + regression of core flows for Agrocorp Lite. Backend /api/dashboard returns distinct role-specific payloads for all 4 roles (admin, accounts, post_sales, site_manager) with expected keys (sales_booked, procurement_approvals, recent_sales for admin; watchlist + procurement_awaiting_po + overdue amounts for accounts; my_sales_count/value + recent_sales for post_sales; inventory_count/low_stock/procurement_by_status/recent_procurement for site_manager). Frontend: each role logs in and sees a DIFFERENT, correctly-branded dashboard: Admin => Command Center (Total Sales Booked ₹65.78L, Payments Pending, Procurement Queue KPIs + secondary counters + Procurement Needs Action + Recent Sales tables); Accounts => The Ledger (Pending ₹40.17L, Overdue ₹19.62L, Received ₹18.61L + Payment Watchlist + Approved-Awaiting-PO panel); Post-Sales => Post-Sales Desk (Plots Available 253, Sold 3, Value Booked + Recent Sales + Your Contribution card + 'Mark a plot sold' button); Site Manager => Tactical Operations (Material Items / Low Stock / Open Requests / Approved KPIs + Low Stock + My Procurement Requests). data-testid='dashboard-page' present in all 4. Sidebar nav is role-filtered correctly (admin sees 7, accounts sees Dashboard/Sales/Procurement, post_sales sees Dashboard/Units/Sales, site_manager sees Dashboard/Inventory/Procurement). User menu + logout works. Regression flows all pass: (a) Post-Sales sold plot #100 in Vacation Village (buyer TEST_Buyer_Regr2, price 10L, booking 2L, schedule 8L) => 200, toast 'Sale recorded — accounts & admin notified', sold count 3->4; (b) Accounts marked a pending payment received via mark-{id}/mark-status/mark-submit; (c) Site Manager added inventory 'TEST_Cement_Regr' and raised procurement 'TEST_Regr Request'; (d) Admin reviewed & approved that procurement request => Approved toast + Record PO CTA. Notification bell opens without error. No console errors or pageerrors detected across all flows.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~992 lines; consider splitting into routers/ (auth, projects, users, units, sales, payments, procurement, inventory, dashboard, notifications) — exceeds 700-line guideline.",
+    "Dashboard endpoint duplicates aggregation logic across 4 role branches; extract common projections into helper builders to keep DRY.",
+    "Login.jsx still calls navigate('/dashboard') during render when already logged in (flagged in iteration_1); low priority but produces React warning."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (dashboard + regression endpoints)", "frontend": "100% (4 role dashboards + 5 regression flows)"},
+  "test_credentials": "Admin 9999999999/Repro@123, Accounts 9000000001/Accounts@123, Post-Sales 9000000002/Sales@123, Site Manager 9000000003/Site@123",
+  "seed_data_creation": "Created during testing (not cleaned up, user's DB should not be wiped): TEST_Buyer_Regr2 booked plot #100 in proj_53fb360c1f0a with 8L pending payment; TEST_Cement_Regr inventory item under site_manager's project; TEST_Regr Request procurement (approved by admin, awaiting PO).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Role-based dashboard overhaul verified end-to-end. Post-testing state: plot 100 sold (new pending payment 8L due 2026-06-01), one procurement approved by admin (TEST_Regr Request). To test PO recording flow, use pay-{id}/pay-po/pay-amt/pay-submit on the approved TEST_Regr Request as accounts.",
+  "rca_of_the_issue": "N/A — no bugs found in this iteration."
+}

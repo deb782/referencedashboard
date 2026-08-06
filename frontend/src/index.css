@@ -1,15 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body { font-family: 'Inter', system-ui, sans-serif; }
+:root {
+  --ag-page: #F6F6F4;
+  --ag-surface: #FFFFFF;
+  --ag-surface-alt: #F1F1EE;
+  --ag-text: #141514;
+  --ag-text-2: #5C5C58;
+  --ag-brand: #1A2F24;
+  --ag-brand-hover: #112119;
+  --ag-clay: #C06E52;
+  --ag-moss: #4A5D4E;
+  --ag-sand: #E6E2D6;
+  --ag-border: #E5E4E0;
+}
 
-/* small helpers */
-.btn { @apply px-3 py-2 rounded-md text-sm font-medium transition-colors; }
-.btn-primary { @apply btn bg-emerald-900 text-white hover:bg-emerald-800; }
-.btn-secondary { @apply btn bg-white border border-stone-300 text-stone-700 hover:bg-stone-50; }
-.btn-danger { @apply btn bg-rose-600 text-white hover:bg-rose-700; }
-.input { @apply w-full px-3 py-2 rounded-md border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:border-emerald-700; }
-.label { @apply block text-xs uppercase tracking-widest text-stone-500 mb-1; }
-.card { @apply bg-white border border-stone-200 rounded-xl; }
-.pill { @apply inline-block text-xs px-2 py-0.5 rounded-full border; }
+html, body, #root { height: 100%; }
+body {
+  font-family: 'Manrope', system-ui, sans-serif;
+  background: var(--ag-page);
+  color: var(--ag-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: #1A2F24; color: #fff; }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d8d7d2; border-radius: 0; border: 2px solid var(--ag-page); }
+::-webkit-scrollbar-thumb:hover { background: #bdbcb6; }
+
+@layer components {
+  .font-display { font-family: 'Outfit', system-ui, sans-serif; }
+  .font-mono-num { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  .overline { @apply text-[11px] uppercase tracking-[0.18em] font-bold text-[#5C5C58]; }
+
+  .btn { @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-sm text-sm font-semibold transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#1A2F24] disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-[#1A2F24] text-white hover:bg-[#112119]; }
+  .btn-secondary { @apply btn bg-white border border-[#E5E4E0] text-[#1A2F24] hover:bg-[#F1F1EE]; }
+  .btn-danger { @apply btn bg-[#9B3922] text-white hover:bg-[#7A2D1B]; }
+  .btn-ghost { @apply btn text-[#5C5C58] hover:bg-[#F1F1EE] hover:text-[#141514]; }
+
+  .input { @apply w-full rounded-sm border border-[#E5E4E0] bg-white px-3 py-2 text-sm text-[#141514] placeholder:text-[#A3A39F] focus:outline-none focus:ring-1 focus:ring-[#1A2F24] focus:border-[#1A2F24] transition-colors duration-200; }
+  .label { @apply block text-[11px] uppercase tracking-[0.14em] font-bold text-[#5C5C58] mb-1.5; }
+
+  .card { @apply bg-white border border-[#E5E4E0] rounded-sm; }
+  .card-hover { @apply transition-colors duration-200 hover:border-[#1A2F24]; }
+
+  .pill { @apply inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-sm border; }
+
+  .th { @apply text-[11px] font-bold uppercase tracking-[0.12em] text-[#5C5C58] py-3 px-4 text-left; }
+  .td { @apply py-3 px-4 text-sm align-middle text-[#141514]; }
+  .row { @apply border-b border-[#E5E4E0] transition-colors duration-200 hover:bg-[#F1F1EE]; }
+}
+
+@keyframes ag-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ag-rise { animation: ag-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.ag-rise-1 { animation-delay: 0.05s; }
+.ag-rise-2 { animation-delay: 0.10s; }
+.ag-rise-3 { animation-delay: 0.15s; }
+.ag-rise-4 { animation-delay: 0.20s; }
+
+@keyframes ag-modal-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.ag-modal { animation: ag-modal-in 0.22s ease-out both; }
