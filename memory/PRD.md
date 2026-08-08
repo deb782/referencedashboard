@@ -127,3 +127,15 @@ REMAINING:
 - P2: Accounts rework — pending grouped into Plots vs Site, per-plot drilldown, partial payments (paid_amount vs amount + receipts), instalment names.
 - P3: Procurement — site manager PI file upload → admin approve → accounts generate PO (file) → site manager views PO → accounts records milestone payment structure → on admin dashboard. (Needs object storage integration.)
 - Go-live: preview & production use separate DBs; user uploads inventory in the LIVE app after redeploy. Raw PowerShell against prod DB is not the supported path — confirm method with support at go-live.
+
+---
+## PHASE 2 — Accounts rework (2026-08-08)
+- Payment model: +paid_amount, +receipts[], status now pending|partial|received.
+- POST /payments/{id}/receipt: partial/full payment entry (accumulates receipts, recomputes status), notifies admin. PATCH /payments/{id} syncs paid_amount.
+- GET /accounts/overview: dues grouped into PLOTS (per project → per plot: billed/paid/pending/next_due/installments) and SITE (procurement approved/paid). list_payments supports unit_id filter.
+- sell_unit: removed strict schedule==net-payable check (fully manual, per user).
+- Sales page rebuilt: Plots/Site head tabs, per-project plot tables, per-plot drilldown modal (all instalments), ReceiptDialog partial-payment entry (Full balance/50% quick-fills, previous receipts). StatusPill supports 'partial'.
+- Verified by testing agent: 4/4 backend + UI flows, 0 bugs. Suite: backend/tests/test_phase2.py. DB reverted clean (0 sold, 0 payments).
+- Note: plot row "Billed" = sum of scheduled instalments (may be < final_price when booking paid upfront) — intended.
+
+REMAINING: P3 procurement (PI upload → admin approve → accounts PO file → site manager views PO → accounts milestone payment structure → admin dashboard). Needs object storage.

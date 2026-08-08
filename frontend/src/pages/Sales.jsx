@@ -161,7 +161,7 @@ function PlotDrilldown({ plot, canPay, onClose, onChanged }) {
             return (
               <tr key={r.payment_id} className="row" data-testid={`inst-row-${r.payment_id}`}>
                 <td className="td font-semibold">{r.notes || `#${r.seq}`}</td>
-                <td className="td font-mono-num text-ink2">{r.due_date}</td>
+                <td className="td font-mono-num text-ink2 whitespace-nowrap">{r.due_date}</td>
                 <td className="td text-right font-mono-num">{inr(r.amount)}</td>
                 <td className="td text-right font-mono-num text-ok">{inr(r.paid_amount)}</td>
                 <td className="td text-right font-mono-num font-semibold">{inr(bal)}</td>
