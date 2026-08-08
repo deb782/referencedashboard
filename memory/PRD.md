@@ -149,3 +149,11 @@ REMAINING: P3 procurement (PI upload → admin approve → accounts PO file → 
 - Verified by testing agent: 16/16 backend + all UI, 0 functional bugs. Suite backend/tests/test_phase3.py. DB cleaned (0 procurement/files/payments/sold) — pre-launch.
 
 ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OWN DB, so upload both projects' inventory in the LIVE app after redeploy. Raw PowerShell against prod DB is not supported — use the live app UI / contact support for any prod data ops.
+
+---
+## HOTFIX — Inventory upload Cloudflare 520 on production (2026-08-08)
+- Symptom: uploading Vacation Village inventory (256 plots) on PRODUCTION errored with Cloudflare 520 "origin returned an empty response". CVF (47 plots) worked.
+- Root cause: /units/commit did 2 sequential DB round-trips per row (find_one + update_one/insert_one) = ~512 awaited calls. On production's remote MongoDB (higher latency) this exceeded the worker/proxy timeout, worker was killed → empty response → CF 520. Preview's local Mongo was fast so it never showed.
+- Fix (backend/server.py commit_units): one find() to load existing plots into a map, build pymongo UpdateOne/InsertOne ops, single bulk_write(ordered=False). Added startup indexes: units.unit_id and units.(project_id,plot_number).
+- Verified in preview via curl: CVF commit = 47 updated, 0 errors in 0.16s (single bulk_write). Perf on prod can only be confirmed after REDEPLOY.
+- ACTION FOR USER: Redeploy, then retry Vacation Village upload on the live app.

@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
 from openpyxl import load_workbook
+from pymongo import InsertOne, UpdateOne
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 load_dotenv()
@@ -793,6 +794,12 @@ async def commit_units(project_id: str = Form(...),
         return s[:-2] if s.endswith(".0") else s
 
     inserted, updated, skipped, errors = 0, 0, [], []
+    existing_map = {}
+    async for e in db.units.find(
+            {"project_id": project_id},
+            {"_id": 0, "unit_id": 1, "status": 1, "plot_number": 1}):
+        existing_map[e["plot_number"]] = e
+    ops = []
     for line, row in enumerate(data_rows, start=2):
         try:
             raw_plot = gv(row, plot_col)
@@ -810,22 +817,23 @@ async def commit_units(project_id: str = Form(...),
                     data[c["key"]] = "" if val is None else str(val).strip()
             area = round(_num(gv(row, area_col)), 2) if area_col else 0.0
             total = round(_num(gv(row, total_col)), 2) if total_col else 0.0
-            existing = await db.units.find_one(
-                {"project_id": project_id, "plot_number": plot},
-                {"_id": 0, "unit_id": 1, "status": 1})
+            existing = existing_map.get(plot)
             payload = {"project_id": project_id, "plot_number": plot,
                        "area": area, "total": total, "data": data}
             if existing:
                 if existing.get("status") == "sold":
                     skipped.append(plot); continue
-                await db.units.update_one({"unit_id": existing["unit_id"]},
-                                           {"$set": payload})
+                ops.append(UpdateOne({"unit_id": existing["unit_id"]},
+                                     {"$set": payload}))
                 updated += 1
             else:
-                await db.units.insert_one(Unit(**payload).model_dump())
+                ops.append(InsertOne(Unit(**payload).model_dump()))
                 inserted += 1
         except Exception as e:
             errors.append({"row": line, "error": str(e)})
+
+    if ops:
+        await db.units.bulk_write(ops, ordered=False)
 
     # persist the column schema on the project
     schema = [{"key": c["key"], "label": c["label"], "tag": c["tag"]} for c in cols]
@@ -1593,6 +1601,8 @@ app.include_router(api)
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("phone", unique=True)
+    await db.units.create_index("unit_id")
+    await db.units.create_index([("project_id", 1), ("plot_number", 1)])
     try:
         init_storage()
         log.info("Object storage initialised")
