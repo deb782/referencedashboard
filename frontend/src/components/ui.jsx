@@ -57,6 +57,7 @@ const STATUS_STYLES = {
   available: { c: "#5a6b10", label: "Available" },
   sold: { c: "#3d4a0a", label: "Sold" },
   pending: { c: "#c8912f", label: "Pending" },
+  partial: { c: "#a8763f", label: "Partial" },
   received: { c: "#5a6b10", label: "Received" },
   overdue: { c: "#a33b28", label: "Overdue" },
   pending_admin: { c: "#c8912f", label: "Awaiting Admin" },

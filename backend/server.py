@@ -183,16 +183,24 @@ class Payment(BaseModel):
     seq: int                         # 1..N in schedule order
     due_date: str
     amount: float
-    notes: str = ""
-    status: Literal["pending", "received"] = "pending"
+    notes: str = ""                  # instalment name
+    paid_amount: float = 0
+    receipts: list = []              # [{amount,date,notes,by,by_name,at}]
+    status: Literal["pending", "partial", "received"] = "pending"
     received_date: Optional[str] = None
     received_notes: str = ""
     marked_by: Optional[str] = None
     marked_at: Optional[str] = None
 
 
+class ReceiptCreate(BaseModel):
+    amount: float
+    date: Optional[str] = None
+    notes: str = ""
+
+
 class PaymentUpdate(BaseModel):
-    status: Literal["pending", "received"]
+    status: Literal["pending", "partial", "received"]
     received_date: Optional[str] = None
     received_notes: str = ""
 
@@ -804,13 +812,6 @@ async def sell_unit(unit_id: str, payload: SellUnitRequest,
         raise HTTPException(400, "Unit is already sold")
     if not payload.schedule:
         raise HTTPException(400, "Payment schedule cannot be empty")
-    scheduled_total = sum(r.amount for r in payload.schedule)
-    remainder = payload.final_price - payload.booking_amount
-    if abs(scheduled_total - remainder) > 1:
-        raise HTTPException(
-            400,
-            f"Schedule total ({scheduled_total:,.0f}) must equal "
-            f"final_price − booking_amount ({remainder:,.0f})")
     # Update unit
     await db.units.update_one(
         {"unit_id": unit_id},
@@ -862,6 +863,9 @@ async def list_payments(project_id: Optional[str] = None,
 @api.patch("/payments/{payment_id}")
 async def update_payment(payment_id: str, payload: PaymentUpdate,
                           user: User = Depends(require_roles("accounts", "admin"))):
+    pay = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
     updates = {
         "status": payload.status,
         "received_date": payload.received_date,
@@ -869,20 +873,119 @@ async def update_payment(payment_id: str, payload: PaymentUpdate,
         "marked_by": user.user_id,
         "marked_at": now(),
     }
-    r = await db.payments.update_one({"payment_id": payment_id}, {"$set": updates})
-    if r.matched_count == 0:
-        raise HTTPException(404, "Payment not found")
-    pay = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
+    if payload.status == "received":
+        updates["paid_amount"] = round(pay["amount"], 2)
+    elif payload.status == "pending":
+        updates["paid_amount"] = 0
+        updates["receipts"] = []
+    await db.payments.update_one({"payment_id": payment_id}, {"$set": updates})
     unit = await db.units.find_one({"unit_id": pay["unit_id"]}, {"_id": 0})
     if payload.status == "received":
         await notify_role(
             "admin", "payment_received",
             f"Payment received · Plot {unit.get('plot_number')} · "
-            f"\u20B9{pay['amount']:,.0f}", "/sales")
+            f"\u20B9{pay['amount']:,.2f}", "/sales")
     return {"ok": True}
 
 
+@api.post("/payments/{payment_id}/receipt")
+async def add_receipt(payment_id: str, payload: ReceiptCreate,
+                       user: User = Depends(require_roles("accounts", "admin"))):
+    pay = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    amt = round(_num(payload.amount), 2)
+    if amt <= 0:
+        raise HTTPException(400, "Receipt amount must be greater than zero")
+    new_paid = round((pay.get("paid_amount") or 0) + amt, 2)
+    receipt = {
+        "amount": amt,
+        "date": payload.date or datetime.now(timezone.utc).date().isoformat(),
+        "notes": payload.notes or "",
+        "by": user.user_id, "by_name": user.name, "at": now(),
+    }
+    status = "received" if new_paid >= round(pay["amount"], 2) - 0.01 else "partial"
+    await db.payments.update_one({"payment_id": payment_id}, {
+        "$set": {"paid_amount": new_paid, "status": status,
+                 "received_date": receipt["date"], "marked_by": user.user_id,
+                 "marked_at": now()},
+        "$push": {"receipts": receipt}})
+    unit = await db.units.find_one({"unit_id": pay["unit_id"]}, {"_id": 0})
+    verb = "fully received" if status == "received" else "part-paid"
+    await notify_role(
+        "admin", "payment_received",
+        f"Plot {unit.get('plot_number')} · {pay.get('notes') or 'instalment'} "
+        f"{verb} · \u20B9{amt:,.2f}", "/sales")
+    return {"ok": True, "paid_amount": new_paid, "status": status}
+
+
 # ----- procurement (site_manager -> admin -> accounts) -------------------
+@api.get("/accounts/overview")
+async def accounts_overview(user: User = Depends(require_roles("accounts", "admin"))):
+    payments = await db.payments.find({}, {"_id": 0}).to_list(20000)
+    units = await db.units.find(
+        {"status": "sold"},
+        {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1, "project_id": 1}).to_list(5000)
+    umap = {u["unit_id"]: u for u in units}
+    projects = await db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)
+    pname = {p["project_id"]: p["name"] for p in projects}
+
+    by_unit: dict = {}
+    for p in payments:
+        by_unit.setdefault(p["unit_id"], []).append(p)
+
+    rows_by_proj: dict = {}
+    for uid, pays in by_unit.items():
+        u = umap.get(uid, {})
+        proj = u.get("project_id") or pays[0].get("project_id")
+        total = round(sum(x["amount"] for x in pays), 2)
+        paid = round(sum((x.get("paid_amount") or 0) for x in pays), 2)
+        due_pending = [x["due_date"] for x in pays if x["status"] != "received"]
+        rows_by_proj.setdefault(proj, []).append({
+            "unit_id": uid, "plot_number": u.get("plot_number", "?"),
+            "buyer_name": u.get("buyer_name"), "project_id": proj,
+            "project_name": pname.get(proj, ""),
+            "total": total, "paid": paid, "pending": round(total - paid, 2),
+            "installments": len(pays),
+            "next_due": sorted(due_pending)[0] if due_pending else None,
+        })
+
+    plots_projects, ptot = [], {"total": 0.0, "paid": 0.0}
+    for proj, rows in rows_by_proj.items():
+        rows.sort(key=lambda r: _plot_key(r["plot_number"]))
+        pt = round(sum(r["total"] for r in rows), 2)
+        pp = round(sum(r["paid"] for r in rows), 2)
+        plots_projects.append({
+            "project_id": proj, "name": pname.get(proj, ""), "plot_count": len(rows),
+            "total": pt, "paid": pp, "pending": round(pt - pp, 2), "plots": rows})
+        ptot["total"] += pt; ptot["paid"] += pp
+    plots_projects.sort(key=lambda x: x["name"])
+    plots_totals = {"total": round(ptot["total"], 2), "paid": round(ptot["paid"], 2),
+                    "pending": round(ptot["total"] - ptot["paid"], 2)}
+
+    # Site head = procurement bills (approved / paid)
+    procs = await db.procurement.find(
+        {"status": {"$in": ["approved", "paid"]}}, {"_id": 0}).to_list(500)
+    site_rows, s_pending, s_paid = [], 0.0, 0.0
+    for r in procs:
+        est = round(sum((i.get("est_cost", 0) * i.get("quantity", 0))
+                        for i in r.get("items", [])), 2)
+        paid = round(r.get("paid_amount", 0) or 0, 2)
+        pend = max(0.0, round(est - paid, 2))
+        site_rows.append({
+            "request_id": r["request_id"], "subject": r["subject"],
+            "project_name": pname.get(r["project_id"], ""), "status": r["status"],
+            "est_total": est, "paid": paid, "pending": pend,
+            "po_number": r.get("po_number")})
+        s_pending += pend; s_paid += paid
+
+    return {
+        "plots": {"projects": plots_projects, "totals": plots_totals},
+        "site": {"rows": site_rows, "pending_total": round(s_pending, 2),
+                 "paid_total": round(s_paid, 2)},
+    }
+
+
 @api.get("/procurement")
 async def list_procurement(user: User = Depends(get_current_user)):
     q: dict = {}

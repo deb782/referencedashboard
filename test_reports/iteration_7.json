@@ -1,0 +1,35 @@
+{
+  "summary": "Phase-2 (Accounts rework: partial payments, Plots/Site heads, per-plot drilldown, schedule-!=-net-payable) tested end-to-end. Backend pytest /app/backend/tests/test_phase2.py — 4/4 PASSED: (1) sell_unit accepts a schedule whose total (5L) != final_price (10L); instalment names + 'On Offer of Possession' string persist on Payment.notes/due_date; (2) POST /payments/{id}/receipt with half-amount → status=partial, paid_amount=half, receipt appended; second receipt for balance → status=received, receipts[] has 2 items; (3) zero and negative receipt amounts both return 400; (4) GET /accounts/overview returns {plots:{projects:[…{name,plot_count,total,paid,pending,plots:[{plot_number,buyer_name,total,paid,pending,installments,next_due}]}], totals:{total,paid,pending}}, site:{rows:[],pending_total,paid_total}} — verified totals aggregate correctly (400k paid / 200k pending on our 600k test sale) and the sold plot appears under 'Central Vista Farms'. Frontend UI: logged in as admin, sold plot 32 in CVF with 2 instalments (300k + 200k, one 'On Offer of Possession'). Sales page renders sales-page + head-plots ('Plots · Pending ₹5,00,000.00') + head-site ('Site · Pending ₹0.00'). Central Vista Farms project section lists plot-pay-row-32 with Billed/Received/Pending in 2dp INR. Clicking the row opens the PlotDrilldown modal with 2 inst-row-* entries, receipt-btn-* buttons on both, instalment name column shows 'Instalment 1 · Foundation' / 'Instalment 2 · Possession', due-date column shows literal 'On Offer of Possession' (not overdue, no red flag). ReceiptDialog: 50% quickfill correctly set to 150000, receipt-notes accepted, receipt-submit produced a green 'Payment recorded' toast; after refresh the row shows the Partial pill + Paid ₹1,50,000.00, header updates to 'Billed ₹5,00,000 · Received ₹1,50,000 · Pending ₹3,50,000'. Second Record dialog shows 'Previous receipts' section with the earlier 1.5L entry; Full balance quickfill fills 150000, submit turns the row Received. Site tab shows the empty 'Procurement bills' table + 'Milestone payment structure comes in the next phase' note. Regression: /dashboard, /units, /users all render without error elements. All money values displayed in 2dp INR. Cleanup: TEST_UI_Buyer sale on plot 32 was reverted (status=available, sale fields unset, 2 payments deleted). DB is back to clean pre-launch state (0 sold, 0 payments).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Sales — PlotDrilldown", "issues": ["The 'On Offer of Possession' text in the Due column wraps to 3 lines because the Due column is narrow. Cosmetic — consider whitespace-nowrap or a wider column, or render it as a compact chip."]},
+      {"screen": "Sales — head tabs (row-level totals)", "issues": ["In this test the plot row's 'Billed' displays the schedule sum (₹5,00,000) rather than the unit's final_price (₹8,00,000). Since Phase-2 no longer enforces schedule==final_price, this can confuse users. Consider either: (a) using unit.final_price as the plot's Billed and separately showing schedule sum, or (b) adding an admonition/tooltip clarifying the metric. Non-blocking; behavior matches server contract (sum of Payment.amount)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2.py",
+    "/app/test_reports/pytest/phase2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1420 lines (still monolithic). Now that accounts/overview + procurement + payment-receipt live here, consider splitting into modules (accounts.py, procurement.py, payments.py, importer.py).",
+    "PATCH /payments/{id} with status='partial' does NOT touch paid_amount or receipts[] (only 'received' and 'pending' branches set/clear). If an admin PATCHes a payment to 'partial' directly, paid_amount will remain unchanged — the client should always go through POST /receipt for partial state changes. Consider forbidding status='partial' via PATCH (accept only pending|received) to avoid inconsistent states.",
+    "add_receipt allows overpayment past the instalment total silently (new_paid > amount just clamps status='received' but stores the larger paid_amount). Consider either rejecting amt > remaining or clamping paid_amount to amount to avoid negative balances in reports.",
+    "The 'On Offer of Possession' magic string is still coupled FE↔BE by convention. Same comment as Phase-1: an optional on_possession:bool on ScheduleRow would be cleaner. Not a blocker.",
+    "/accounts/overview sends the entire payments+sold-units set into memory to aggregate in Python — fine at current scale but should be replaced with a Mongo aggregation pipeline before you exceed a few thousand payments.",
+    "Sales.jsx PlotDrilldown fetches /payments?unit_id=… every time — good. But the top-level overview is only refreshed when a receipt saves; if multiple accounts users are recording concurrently the totals card can go stale. Consider a light polling or SSE.",
+    "Sales.jsx renders <table> without <th scope='col'> and the Due column has no min-width — 'On Offer of Possession' wraps awkwardly.",
+    "There is no way from the Sales UI (or a supported endpoint) to REVERT a wrongly-recorded sale short of DB surgery. For QA convenience and real ops (buyer cancellations), consider POST /units/{unit_id}/cancel-sale that unsets sale fields and deletes/voids its payments."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase2.py", "/app/test_reports/iteration_7.json"],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% of exercised flows"},
+  "test_credentials": "Admin 9513242807 / Repro@123 — verified.",
+  "seed_data_creation": "Backend pytest: sold one CVF plot (first available) with 2 instalments + 2 receipts, then reverted (status=available, sale fields unset, payments deleted) via a fixture teardown. Frontend UI test: sold CVF plot 32 with TEST_UI_Buyer + 2 receipts, then reverted manually via mongo (status=available, sale fields unset, payments deleted). Final DB state: 0 sold units, 0 payments — pre-launch clean state restored.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-2 fully verified. Reusable pytest at /app/backend/tests/test_phase2.py — its fixture picks the FIRST available CVF plot (currently plot 32) and always reverts. Combined with test_phase1.py (9/9) the current backend regression suite is 13/13. Phase-3 (procurement PI/PO files + milestone payments) is not built — Site head is view-only. Note the design-issue about plot-row 'Billed' showing schedule sum ≠ final_price now that the equality check is dropped.",
+  "rca of the issue": "N/A — no bugs found."
+}
