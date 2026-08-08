@@ -237,8 +237,8 @@ class ScheduleRow(BaseModel):
 
 
 class SellUnitRequest(BaseModel):
-    buyer_name: str
-    buyer_contact: str
+    buyer_name: str = ""
+    buyer_contact: str = ""
     sale_date: str
     final_price: float
     booking_amount: float
@@ -949,8 +949,9 @@ async def sell_unit(unit_id: str, payload: SellUnitRequest,
         for d in docs:
             d.pop("_id", None)
     # Notify admin + accounts (in-app only)
+    buyer_txt = f"{payload.buyer_name} · " if payload.buyer_name else ""
     msg = (f"Sale recorded · Plot {unit['plot_number']} · "
-           f"{payload.buyer_name} · \u20B9{payload.final_price:,.0f} "
+           f"{buyer_txt}\u20B9{payload.final_price:,.0f} "
            f"· {len(docs)} installments")
     link = f"/sales"
     await notify_role("admin", "sale_recorded", msg, link)

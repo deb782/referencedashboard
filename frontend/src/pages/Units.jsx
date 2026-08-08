@@ -285,7 +285,6 @@ function SellDialog({ unit, onClose, onSaved }) {
   const scheduleTotal = schedule.reduce((s, r) => s + Number(r.amount || 0), 0);
 
   const save = async () => {
-    if (!form.buyer_name || !form.buyer_contact) return toast.error("Buyer name and contact required");
     if (schedule.some(r => !r.amount || (!r.due_date && !r.on_possession))) return toast.error("Each row needs an amount and a due date (or On Offer of Possession)");
     setBusy(true);
     try {
@@ -311,8 +310,8 @@ function SellDialog({ unit, onClose, onSaved }) {
         <button onClick={save} disabled={busy} className="btn-primary" data-testid="s-submit">{busy ? "Saving…" : "Confirm sale"}</button>
       </>}>
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="label">Buyer name *</label><input value={form.buyer_name} onChange={(e) => setForm({ ...form, buyer_name: e.target.value })} className="input" data-testid="s-buyer" /></div>
-        <div><label className="label">Buyer contact *</label><input value={form.buyer_contact} onChange={(e) => setForm({ ...form, buyer_contact: e.target.value })} className="input font-mono-num" data-testid="s-contact" /></div>
+        <div><label className="label">Buyer name</label><input value={form.buyer_name} onChange={(e) => setForm({ ...form, buyer_name: e.target.value })} className="input" data-testid="s-buyer" /></div>
+        <div><label className="label">Buyer contact</label><input value={form.buyer_contact} onChange={(e) => setForm({ ...form, buyer_contact: e.target.value })} className="input font-mono-num" data-testid="s-contact" /></div>
         <div><label className="label">Sale date *</label><input type="date" value={form.sale_date} onChange={(e) => setForm({ ...form, sale_date: e.target.value })} className="input font-mono-num" data-testid="s-date" /></div>
         <div><label className="label">Final price</label><input type="number" value={form.final_price} onChange={(e) => setForm({ ...form, final_price: e.target.value })} className="input font-mono-num" data-testid="s-price" /></div>
         <div><label className="label">Booking amount</label><input type="number" value={form.booking_amount} onChange={(e) => setForm({ ...form, booking_amount: e.target.value })} className="input font-mono-num" data-testid="s-booking" /></div>
