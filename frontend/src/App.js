@@ -32,10 +32,12 @@ export default function App() {
         <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
         <Route path="/projects" element={<Protected roles={["admin"]}><Projects /></Protected>} />
         <Route path="/users" element={<Protected roles={["admin"]}><UsersPage /></Protected>} />
+        <Route path="/team" element={<Navigate to="/users" replace />} />
         <Route path="/units" element={<Protected roles={["admin","post_sales"]}><Units /></Protected>} />
         <Route path="/sales" element={<Protected roles={["admin","post_sales","accounts"]}><Sales /></Protected>} />
         <Route path="/inventory" element={<Protected roles={["admin","site_manager"]}><Inventory /></Protected>} />
         <Route path="/procurement" element={<Protected roles={["admin","site_manager","accounts"]}><Procurement /></Protected>} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AuthProvider>
   );

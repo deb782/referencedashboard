@@ -109,3 +109,21 @@
 - Imported real 'CVF Inventory 24.07.26.xlsx' into Central Vista Farms (proj_01d7e89ba838): 47 units.
 - Extended importer for CVF header wording: FARM# -> unit_no, NET PAYABLE -> grand total; new columns cv_facing, multi_plc (2 or more PLCs), guidance_value, electricity_infra, khata_registration, sinking_fund, stamp_duty; reordered infra synonyms so DEVELOPMENT CHARGE -> infra_dev and ELECTRICITY INFRASTRUCTURE -> electricity_infra.
 - Verified: FARM# 32 -> area 7911.5, bsp 5933625, sheet_grand_total 8079622.43, multi_plc 445021.875. Testing agent 7/7 pass, no regression. Suite: backend/tests/test_cvf_import.py.
+
+---
+## Multi-project redesign — PHASE 1 (2026-08-08)
+Confirmed choices: tags {plot_id,area,charge,total,reference,ignore}; rebuild from new uploads; free-form sale schedule (instalment name + due-date/On-Offer-of-Possession, partial payments, no strict total check); procurement PI/PO = file uploads (P3); phased delivery.
+
+Delivered P1:
+- Dynamic per-project inventory schema: Project.columns=[{key,label,tag}], Unit.data{}/area/total (plc_details/other_charges removed). Legacy /units/import replaced by POST /units/preview (detect columns + suggest tags) + POST /units/commit (project_id,file,mapping) which saves the project's column structure and upserts plots (rounds to 2dp, skips sold).
+- Admin add plot POST /projects/{id}/plots and edit PATCH /units/{unit_id}; numeric ascending sort of plots; Project.kind field.
+- Dashboards return by_project[] (pivot = sum of each charge/total/reference column across all + sold plots) + consolidated. Admin/Post-Sales/Accounts dashboards now TWO-COLUMN per project (no project selector) + consolidated strip.
+- Units page: per-project sections, upload wizard (preview→map→commit), add/edit plot, dynamic horizontally-scrollable tables.
+- Sell schedule: instalment name + due date OR "On Offer of Possession"; Sales page shows instalment name column. Money everywhere 2 decimals. /team→/users alias + catch-all route.
+- CVF (proj_01d7e89ba838) committed via new flow (24 cols, 47 plots). VV (proj_53fb360c1f0a) has no schema yet (awaiting upload).
+- Verified by testing agent: 9/9 backend + all frontend flows, 0 bugs. Suite: backend/tests/test_phase1.py. (Obsolete: test_units_import.py/test_cvf_import.py target removed endpoint.)
+
+REMAINING:
+- P2: Accounts rework — pending grouped into Plots vs Site, per-plot drilldown, partial payments (paid_amount vs amount + receipts), instalment names.
+- P3: Procurement — site manager PI file upload → admin approve → accounts generate PO (file) → site manager views PO → accounts records milestone payment structure → on admin dashboard. (Needs object storage integration.)
+- Go-live: preview & production use separate DBs; user uploads inventory in the LIVE app after redeploy. Raw PowerShell against prod DB is not the supported path — confirm method with support at go-live.
