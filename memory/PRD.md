@@ -157,3 +157,10 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Fix (backend/server.py commit_units): one find() to load existing plots into a map, build pymongo UpdateOne/InsertOne ops, single bulk_write(ordered=False). Added startup indexes: units.unit_id and units.(project_id,plot_number).
 - Verified in preview via curl: CVF commit = 47 updated, 0 errors in 0.16s (single bulk_write). Perf on prod can only be confirmed after REDEPLOY.
 - ACTION FOR USER: Redeploy, then retry Vacation Village upload on the live app.
+
+---
+## HOTFIX 2 — REAL root cause of VV upload 520 (2026-08-08)
+- File "VV CKM RERA Area Inventory": openpyxl reported dims A1:HP14654 (14,654 rows x 224 cols) though only 256 real plots. Old _read_tabular did `[list(r) for r in ws.iter_rows()]` = materialised ~3.28M cells into memory (6.3s read + big RAM) -> on memory-limited prod container the worker was OOM-killed -> empty response -> Cloudflare 520. Happened on BOTH preview & commit; HOTFIX 1 (bulk_write) alone didn't fix it.
+- Fix (_read_tabular): open read_only=True, stream rows, stop after 25 consecutive blank rows, trim trailing all-empty (phantom) columns. Result: 0.03s read, 16 cols, 259 rows.
+- Verified via curl with the ACTUAL file against preview: /units/preview = 16 cols/256 rows in 0.25s; /units/commit = 256 updated, 0 errors in 0.25s. VV project (proj_53fb360c1f0a) now has 16-col dynamic schema + 256 units populated.
+- ACTION FOR USER: REDEPLOY again (this fix wasn't in the last deploy), then upload VV on live app.

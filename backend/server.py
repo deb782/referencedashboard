@@ -640,13 +640,32 @@ COL_SYNS = {
 
 
 def _read_tabular(raw: bytes, fname: str) -> list:
-    """Return a list-of-rows from an .xlsx or .csv upload."""
+    """Return a list-of-rows from an .xlsx or .csv upload.
+
+    Uses openpyxl read-only streaming and stops after a run of blank rows so
+    spreadsheets with tens of thousands of phantom rows/columns (Excel leaves
+    these behind after formatting) don't blow up memory or time out.
+    """
     if fname.endswith(".csv"):
         return _read_csv(raw)
     try:
-        wb = load_workbook(io.BytesIO(raw), data_only=True)
+        wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
         ws = wb.active
-        return [list(r) for r in ws.iter_rows(values_only=True)]
+        out, blanks = [], 0
+        for r in ws.iter_rows(values_only=True):
+            if not any(c not in (None, "") for c in r):
+                blanks += 1
+                if out and blanks > 25:
+                    break
+                continue
+            blanks = 0
+            out.append(list(r))
+        wb.close()
+        # trim trailing all-empty columns (phantom columns)
+        width = max((max((i + 1 for i, v in enumerate(r)
+                          if v not in (None, "")), default=0)
+                     for r in out), default=0)
+        return [r[:width] for r in out]
     except Exception:
         try:
             return _read_csv(raw)
