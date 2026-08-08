@@ -55,14 +55,17 @@ export default function Procurement() {
       {showNew && <NewProcurement projects={projects} user={user} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
       {actionFor && <ActionDialog req={actionFor} onClose={() => setActionFor(null)} onSaved={() => { setActionFor(null); load(); }} />}
       {poFor && <PoDialog req={poFor} onClose={() => setPoFor(null)} onSaved={() => { setPoFor(null); load(); }} />}
-      {msFor && <MilestoneDialog req={msFor} user={user} onClose={() => setMsFor(null)} onSaved={() => { setMsFor(null); load(); }} />}
+      {msFor && <MilestoneDialog req={msFor} user={user} onClose={() => { setMsFor(null); load(); }}
+                    onRefresh={async () => { const r = await api.get("/procurement"); setRows(r.data); return r.data.find(x => x.request_id === msFor.request_id); }} />}
     </div>
   );
 }
 
 function ProcList({ rows, projName, user, onAction, onPo, onMs }) {
   if (rows.length === 0) return <EmptyState icon={FileText} title="Nothing here" hint="Requests appear in this queue." />;
-  const total = (r) => (r.items || []).reduce((s, i) => s + Number(i.est_cost || 0) * Number(i.quantity || 0), 0);
+  const total = (r) => (r.milestones?.length
+    ? r.milestones.reduce((s, m) => s + Number(m.amount || 0), 0)
+    : (r.items || []).reduce((s, i) => s + Number(i.est_cost || 0) * Number(i.quantity || 0), 0));
   return rows.map((r) => (
     <div key={r.request_id} className="px-5 py-4" data-testid={`proc-row-${r.request_id}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -82,7 +85,7 @@ function ProcList({ rows, projName, user, onAction, onPo, onMs }) {
             <div className="mt-3 flex flex-wrap gap-2">
               {r.milestones.map((m, i) => (
                 <span key={i} className={`text-[11px] px-2 py-1 rounded-md border ${m.status === "paid" ? "border-ok/30 bg-ok/5 text-ok" : "border-agborder text-ink2"}`}>
-                  {m.label}: {inr(m.amount)} {m.status === "paid" ? "✓" : `· due ${m.due || "—"}`}
+                  {m.label}: {inr(m.amount)} {m.status === "paid" ? "✓" : (m.due ? `· due ${m.due}` : "")}
                 </span>
               ))}
             </div>
@@ -261,7 +264,8 @@ function PoDialog({ req, onClose, onSaved }) {
   );
 }
 
-function MilestoneDialog({ req, user, onClose, onSaved }) {
+function MilestoneDialog({ req, user, onClose, onRefresh }) {
+  const [live, setLive] = useState(req);
   const [ms, setMs] = useState(() => (req.milestones?.length ? req.milestones.map(m => ({ ...m })) : [{ label: "", amount: 0, due: "", status: "pending" }]));
   const [busy, setBusy] = useState(false);
   const canPay = can(user, "accounts", "admin");
@@ -270,6 +274,11 @@ function MilestoneDialog({ req, user, onClose, onSaved }) {
   const rmRow = (i) => setMs(ms.filter((_, idx) => idx !== i));
   const updRow = (i, patch) => setMs(ms.map((m, idx) => idx === i ? { ...m, ...patch } : m));
 
+  const refresh = async () => {
+    const updated = await onRefresh();
+    if (updated) { setLive(updated); setMs((updated.milestones || []).map(m => ({ ...m }))); }
+  };
+
   const saveStructure = async () => {
     const valid = ms.filter(m => m.label.trim() && Number(m.amount) > 0);
     if (valid.length === 0) return toast.error("Add at least one milestone");
@@ -277,7 +286,7 @@ function MilestoneDialog({ req, user, onClose, onSaved }) {
     try {
       await api.post(`/procurement/${req.request_id}/milestones`, { milestones: valid.map(m => ({ label: m.label, amount: Number(m.amount), due: m.due || "" })) });
       toast.success("Payment structure saved");
-      onSaved();
+      await refresh();
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };
 
@@ -285,12 +294,12 @@ function MilestoneDialog({ req, user, onClose, onSaved }) {
     try {
       await api.post(`/procurement/${req.request_id}/milestones/${i}/pay`, { paid_date: new Date().toISOString().slice(0, 10) });
       toast.success("Milestone marked paid");
-      onSaved();
+      await refresh();
     } catch (e) { toast.error(apiError(e)); }
   };
 
   const total = ms.reduce((s, m) => s + Number(m.amount || 0), 0);
-  const saved = (req.milestones || []).length > 0;
+  const saved = (live.milestones || []).length > 0;
 
   return (
     <Modal size="xl" title="Payment structure (PO milestones)" subtitle={`${req.subject}${req.po_number ? ` · PO ${req.po_number}` : ""}`} onClose={onClose}

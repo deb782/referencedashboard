@@ -139,3 +139,13 @@ REMAINING:
 - Note: plot row "Billed" = sum of scheduled instalments (may be < final_price when booking paid upfront) — intended.
 
 REMAINING: P3 procurement (PI upload → admin approve → accounts PO file → site manager views PO → accounts milestone payment structure → admin dashboard). Needs object storage.
+
+---
+## PHASE 3 — Procurement with file uploads + milestones (2026-08-08)
+- Emergent object storage integrated (init_storage/put_object/get_object/save_upload; APP_NAME=agrocorp-lite; EMERGENT_LLM_KEY added to backend/.env; files collection). init on startup.
+- Flow: site manager POST /procurement (multipart + PI file) -> admin /action approve -> accounts POST /procurement/{id}/po (multipart PO file + po_number, status po_issued) -> POST /procurement/{id}/milestones (structure) -> POST /procurement/{id}/milestones/{idx}/pay (mark paid; all paid => status paid). GET /files/{file_id}/download?token=JWT (401/404 guarded). Old /payment endpoint removed.
+- accounts_overview Site head + admin dashboard site_bills now driven by PO milestones. StatusPill: po_issued label.
+- Frontend Procurement.jsx: PI upload in new request, PI/PO download links, Issue-PO dialog (PO upload), Milestone dialog (set structure + mark paid, stays open). lib/api fileUrl().
+- Verified by testing agent: 16/16 backend + all UI, 0 functional bugs. Suite backend/tests/test_phase3.py. DB cleaned (0 procurement/files/payments/sold) — pre-launch.
+
+ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OWN DB, so upload both projects' inventory in the LIVE app after redeploy. Raw PowerShell against prod DB is not supported — use the live app UI / contact support for any prod data ops.

@@ -63,6 +63,7 @@ const STATUS_STYLES = {
   pending_admin: { c: "#c8912f", label: "Awaiting Admin" },
   pending_clarification: { c: "#a8763f", label: "Needs Clarification" },
   approved: { c: "#5a6b10", label: "Approved" },
+  po_issued: { c: "#3d4a0a", label: "PO Issued" },
   paid: { c: "#3d4a0a", label: "Paid" },
   rejected: { c: "#a33b28", label: "Rejected" },
   low: { c: "#718096", label: "Low" },
