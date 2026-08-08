@@ -32,3 +32,8 @@ export function apiError(e) {
   if (Array.isArray(d)) return d.map((x) => x.msg || String(x)).join(" · ");
   return e?.message || "Something went wrong";
 }
+
+export function fileUrl(fileId) {
+  const token = localStorage.getItem("token");
+  return `${API_BASE}/api/files/${fileId}/download?token=${encodeURIComponent(token || "")}`;
+}

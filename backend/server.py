@@ -9,7 +9,9 @@ import io
 import csv
 import os
 import uuid
+import json
 import logging
+import requests
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
@@ -17,8 +19,9 @@ import bcrypt
 import jwt
 from dotenv import load_dotenv
 from fastapi import (
-    Depends, FastAPI, File, Form, HTTPException, Header, UploadFile,
+    Depends, FastAPI, File, Form, HTTPException, Header, Query, UploadFile,
 )
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -40,6 +43,72 @@ ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@agrocorp.local")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+
+# ---------------------------------------------------------- object storage -
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "agrocorp-lite"
+MIME_TYPES = {
+    "pdf": "application/pdf", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "png": "image/png", "webp": "image/webp", "gif": "image/gif",
+    "csv": "text/csv", "txt": "text/plain",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_storage_key = None
+
+
+def init_storage(force: bool = False):
+    global _storage_key
+    if _storage_key and not force:
+        return _storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(f"{STORAGE_URL}/objects/{path}",
+                        headers={"X-Storage-Key": key, "Content-Type": content_type},
+                        data=data, timeout=120)
+    if resp.status_code == 404:  # dead key -> re-init once
+        key = init_storage(force=True)
+        resp = requests.put(f"{STORAGE_URL}/objects/{path}",
+                            headers={"X-Storage-Key": key, "Content-Type": content_type},
+                            data=data, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str) -> tuple:
+    key = init_storage()
+    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    if resp.status_code == 404:
+        key = init_storage(force=True)
+        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+
+async def save_upload(file: UploadFile, folder: str, user_id: str) -> dict:
+    ext = (file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "bin")
+    file_id = new_id("file")
+    path = f"{APP_NAME}/{folder}/{user_id}/{file_id}.{ext}"
+    data = await file.read()
+    ctype = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    result = put_object(path, data, ctype)
+    ref = {
+        "file_id": file_id, "storage_path": result["path"],
+        "original_filename": file.filename, "content_type": ctype,
+        "size": result.get("size", len(data)), "uploaded_by": user_id,
+        "uploaded_at": now(), "is_deleted": False,
+    }
+    await db.files.insert_one({**ref})
+    return {k: v for k, v in ref.items() if k != "_id"}
 
 app = FastAPI(title="Agrocorp Lite")
 app.add_middleware(
@@ -223,19 +292,37 @@ class ProcurementRequest(BaseModel):
     notes: str = ""
     status: Literal["pending_admin", "pending_clarification",
                     "approved", "rejected",
-                    "paid"] = "pending_admin"
+                    "po_issued", "paid"] = "pending_admin"
     requested_by: str
     requested_at: str = Field(default_factory=now)
+    pi_file: Optional[dict] = None          # Performa Invoice (site manager)
+    po_file: Optional[dict] = None          # Purchase Order (accounts)
+    po_number: Optional[str] = None
+    milestones: list = []                   # [{label,amount,due,status,paid_date,paid_amount,notes}]
     admin_action_by: Optional[str] = None
     admin_action_at: Optional[str] = None
     admin_note: str = ""
-    # accounts payment update (after PO)
-    po_number: Optional[str] = None
     paid_amount: float = 0
     paid_date: Optional[str] = None
     paid_by: Optional[str] = None
     paid_at: Optional[str] = None
     paid_notes: str = ""
+
+
+class MilestoneItem(BaseModel):
+    label: str
+    amount: float = 0
+    due: str = ""
+
+
+class MilestonesSet(BaseModel):
+    milestones: List[MilestoneItem]
+
+
+class MilestonePay(BaseModel):
+    paid_date: Optional[str] = None
+    paid_amount: Optional[float] = None
+    notes: str = ""
 
 
 class ProcurementCreate(BaseModel):
@@ -963,20 +1050,26 @@ async def accounts_overview(user: User = Depends(require_roles("accounts", "admi
     plots_totals = {"total": round(ptot["total"], 2), "paid": round(ptot["paid"], 2),
                     "pending": round(ptot["total"] - ptot["paid"], 2)}
 
-    # Site head = procurement bills (approved / paid)
+    # Site head = procurement bills (PO issued / paid, with milestones)
     procs = await db.procurement.find(
-        {"status": {"$in": ["approved", "paid"]}}, {"_id": 0}).to_list(500)
+        {"status": {"$in": ["approved", "po_issued", "paid"]}}, {"_id": 0}).to_list(500)
     site_rows, s_pending, s_paid = [], 0.0, 0.0
     for r in procs:
-        est = round(sum((i.get("est_cost", 0) * i.get("quantity", 0))
-                        for i in r.get("items", [])), 2)
-        paid = round(r.get("paid_amount", 0) or 0, 2)
+        ms = r.get("milestones") or []
+        if ms:
+            est = round(sum(m.get("amount", 0) for m in ms), 2)
+            paid = round(sum((m.get("paid_amount", 0) or 0) for m in ms if m.get("status") == "paid"), 2)
+        else:
+            est = round(sum((i.get("est_cost", 0) * i.get("quantity", 0))
+                            for i in r.get("items", [])), 2)
+            paid = round(r.get("paid_amount", 0) or 0, 2)
         pend = max(0.0, round(est - paid, 2))
         site_rows.append({
             "request_id": r["request_id"], "subject": r["subject"],
             "project_name": pname.get(r["project_id"], ""), "status": r["status"],
             "est_total": est, "paid": paid, "pending": pend,
-            "po_number": r.get("po_number")})
+            "po_number": r.get("po_number"),
+            "milestones": ms})
         s_pending += pend; s_paid += paid
 
     return {
@@ -995,19 +1088,128 @@ async def list_procurement(user: User = Depends(get_current_user)):
 
 
 @api.post("/procurement")
-async def create_procurement(payload: ProcurementCreate,
-                              user: User = Depends(require_roles("site_manager", "admin"))):
-    if user.role == "site_manager" and user.project_id != payload.project_id:
+async def create_procurement(
+        project_id: str = Form(...),
+        subject: str = Form(...),
+        items: str = Form(...),
+        priority: str = Form("medium"),
+        notes: str = Form(""),
+        file: Optional[UploadFile] = File(None),
+        user: User = Depends(require_roles("site_manager", "admin"))):
+    if user.role == "site_manager" and user.project_id != project_id:
         raise HTTPException(403, "Project not in your scope")
-    if not payload.items:
+    try:
+        item_list = json.loads(items)
+    except Exception:
+        raise HTTPException(400, "Invalid items payload")
+    if not item_list:
         raise HTTPException(400, "At least one item is required")
-    r = ProcurementRequest(**payload.model_dump(), requested_by=user.user_id)
+    pi_ref = await save_upload(file, "procurement/pi", user.user_id) if file else None
+    r = ProcurementRequest(
+        project_id=project_id, subject=subject,
+        items=[ProcurementItem(**i) for i in item_list],
+        priority=priority, notes=notes, requested_by=user.user_id, pi_file=pi_ref)
     await db.procurement.insert_one(r.model_dump())
-    proj = await db.projects.find_one({"project_id": payload.project_id}, {"_id": 0}) or {}
-    msg = (f"Procurement request · {payload.subject} · "
-           f"{proj.get('name','')} · Priority: {payload.priority}")
-    await notify_role("admin", "procurement_new", msg, "/procurement")
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
+    await notify_role("admin", "procurement_new",
+                      f"Procurement request · {subject} · {proj.get('name','')} · "
+                      f"Priority: {priority}", "/procurement")
     return r.model_dump()
+
+
+@api.post("/procurement/{request_id}/po")
+async def issue_po(request_id: str,
+                    po_number: str = Form(...),
+                    file: Optional[UploadFile] = File(None),
+                    user: User = Depends(require_roles("accounts", "admin"))):
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    if doc["status"] not in ("approved", "po_issued"):
+        raise HTTPException(400, "Only approved requests can get a PO")
+    po_ref = await save_upload(file, "procurement/po", user.user_id) if file else doc.get("po_file")
+    await db.procurement.update_one({"request_id": request_id}, {"$set": {
+        "status": "po_issued", "po_number": po_number, "po_file": po_ref}})
+    await notify(doc["requested_by"], "procurement_po",
+                 f"PO issued for '{doc['subject']}' · PO {po_number}", "/procurement")
+    await notify_role("admin", "procurement_po",
+                      f"PO {po_number} issued · {doc['subject']}", "/procurement")
+    return {"ok": True, "status": "po_issued"}
+
+
+@api.post("/procurement/{request_id}/milestones")
+async def set_milestones(request_id: str, payload: MilestonesSet,
+                          user: User = Depends(require_roles("accounts", "admin"))):
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    if doc["status"] not in ("po_issued", "paid"):
+        raise HTTPException(400, "Issue a PO before setting the payment structure")
+    existing = doc.get("milestones") or []
+    milestones = []
+    for i, m in enumerate(payload.milestones):
+        prev = existing[i] if i < len(existing) else {}
+        milestones.append({
+            "label": m.label, "amount": round(_num(m.amount), 2), "due": m.due,
+            "status": prev.get("status", "pending"),
+            "paid_date": prev.get("paid_date"), "paid_amount": prev.get("paid_amount", 0),
+            "notes": prev.get("notes", ""),
+        })
+    await db.procurement.update_one({"request_id": request_id},
+                                     {"$set": {"milestones": milestones}})
+    await notify_role("admin", "procurement_milestones",
+                      f"Payment structure set for '{doc['subject']}' "
+                      f"({len(milestones)} milestone(s))", "/procurement")
+    return {"ok": True, "milestones": milestones}
+
+
+@api.post("/procurement/{request_id}/milestones/{idx}/pay")
+async def pay_milestone(request_id: str, idx: int, payload: MilestonePay,
+                         user: User = Depends(require_roles("accounts", "admin"))):
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    ms = doc.get("milestones") or []
+    if idx < 0 or idx >= len(ms):
+        raise HTTPException(404, "Milestone not found")
+    ms[idx]["status"] = "paid"
+    ms[idx]["paid_date"] = payload.paid_date or datetime.now(timezone.utc).date().isoformat()
+    ms[idx]["paid_amount"] = round(_num(payload.paid_amount if payload.paid_amount is not None else ms[idx]["amount"]), 2)
+    ms[idx]["notes"] = payload.notes or ms[idx].get("notes", "")
+    all_paid = all(m["status"] == "paid" for m in ms)
+    total_paid = round(sum(m.get("paid_amount", 0) for m in ms), 2)
+    updates = {"milestones": ms, "paid_amount": total_paid}
+    if all_paid:
+        updates["status"] = "paid"; updates["paid_by"] = user.user_id
+        updates["paid_at"] = now(); updates["paid_date"] = ms[idx]["paid_date"]
+    await db.procurement.update_one({"request_id": request_id}, {"$set": updates})
+    await notify_role("admin", "procurement_milestone_paid",
+                      f"Milestone '{ms[idx]['label']}' paid · {doc['subject']} · "
+                      f"\u20B9{ms[idx]['paid_amount']:,.2f}", "/procurement")
+    return {"ok": True, "all_paid": all_paid, "paid_amount": total_paid}
+
+
+@api.get("/files/{file_id}/download")
+async def download_file(file_id: str, authorization: str = Header(None),
+                         auth: str = Query(None),
+                         token: Optional[str] = Query(None)):
+    tok = None
+    if authorization and authorization.startswith("Bearer "):
+        tok = authorization[7:]
+    tok = tok or auth or token
+    if not tok:
+        raise HTTPException(401, "Missing token")
+    try:
+        jwt.decode(tok, JWT_SECRET, algorithms=[JWT_ALG])
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    rec = await db.files.find_one({"file_id": file_id, "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "File not found")
+    data, ctype = get_object(rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type", ctype),
+                    headers={"Content-Disposition":
+                             f'inline; filename="{rec.get("original_filename", "file")}"'})
 
 
 @api.post("/procurement/{request_id}/action")
@@ -1040,34 +1242,6 @@ async def admin_action_procurement(request_id: str, payload: AdminAction,
                           f"Approved procurement ready for PO/payment · "
                           f"{doc['subject']}", "/procurement")
     return {"ok": True, "status": new_status}
-
-
-@api.post("/procurement/{request_id}/payment")
-async def procurement_payment(request_id: str, payload: ProcurementPayment,
-                               user: User = Depends(require_roles("accounts", "admin"))):
-    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(404, "Request not found")
-    if doc["status"] != "approved":
-        raise HTTPException(400, "Only approved requests can be marked paid")
-    await db.procurement.update_one(
-        {"request_id": request_id},
-        {"$set": {"status": "paid",
-                  "po_number": payload.po_number,
-                  "paid_amount": payload.paid_amount,
-                  "paid_date": payload.paid_date,
-                  "paid_notes": payload.notes,
-                  "paid_by": user.user_id,
-                  "paid_at": now()}})
-    await notify_role(
-        "admin", "procurement_paid",
-        f"Payment completed for procurement '{doc['subject']}' · "
-        f"PO {payload.po_number} · \u20B9{payload.paid_amount:,.0f}",
-        "/procurement")
-    await notify(doc["requested_by"], "procurement_paid",
-                  f"Payment completed — PO {payload.po_number}",
-                  "/procurement")
-    return {"ok": True}
 
 
 # ----- inventory (site_manager) ------------------------------------------
@@ -1236,6 +1410,19 @@ async def dashboard(user: User = Depends(get_current_user)):
         recent_sales = await db.units.find(
             {"status": "sold"}, {"_id": 0}).sort("sold_at", -1).limit(6).to_list(6)
         proc_paid = await db.procurement.count_documents({"status": "paid"})
+        site_procs = await db.procurement.find(
+            {"status": {"$in": ["po_issued", "paid"]}}, {"_id": 0}).to_list(500)
+        site_pending = site_paid = 0.0
+        site_milestones = []
+        for r in site_procs:
+            ms = r.get("milestones") or []
+            est = round(sum(m.get("amount", 0) for m in ms), 2) if ms else round(r.get("paid_amount", 0), 2)
+            paid = round(sum((m.get("paid_amount", 0) or 0) for m in ms if m.get("status") == "paid"), 2)
+            site_pending += max(0.0, est - paid); site_paid += paid
+            for m in ms:
+                site_milestones.append({"subject": r["subject"], "po_number": r.get("po_number"),
+                                        "label": m.get("label"), "amount": m.get("amount"),
+                                        "due": m.get("due"), "status": m.get("status")})
         base.update({
             "sales_booked": sales_booked,
             "payments_pending_amount": pending_amt,
@@ -1243,6 +1430,9 @@ async def dashboard(user: User = Depends(get_current_user)):
             "team_members": team,
             "procurement_approvals": approvals,
             "procurement_paid": proc_paid,
+            "site_bills": {"pending": round(site_pending, 2), "paid": round(site_paid, 2),
+                           "count": len(site_procs),
+                           "milestones": sorted(site_milestones, key=lambda x: (x["status"] == "paid", x.get("due") or ""))[:8]},
             "recent_sales": recent_sales,
             "by_project": by_project,
             "consolidated": consolidated,
@@ -1403,6 +1593,11 @@ app.include_router(api)
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("phone", unique=True)
+    try:
+        init_storage()
+        log.info("Object storage initialised")
+    except Exception as e:
+        log.warning("Object storage init failed (will retry on demand): %s", e)
     # Provision the initial admin if the users collection is empty
     n = await db.users.count_documents({})
     if n == 0:

@@ -1,0 +1,43 @@
+{
+  "summary": "Phase-3 (Procurement with file uploads + milestone payments + Emergent object storage) tested end-to-end. Backend pytest /app/backend/tests/test_phase3.py: 16/16 PASSED. Exercised the full lifecycle for CVF (proj_01d7e89ba838): (1) POST /api/procurement multipart with PI PDF + 2 items → status=pending_admin, pi_file.file_id present; (2) POST /procurement/{id}/action {approve} → approved; (3) POST /procurement/{id}/po multipart with po_number 'TEST-PO-9001' + PO PDF → status=po_issued, po_file set; (4) POST /procurement/{id}/milestones → 2 milestones saved (50k + 50k); (5) POST /procurement/{id}/milestones/0/pay → all_paid=false, paid_amount=50000, request status stays po_issued; (6) POST /procurement/{id}/milestones/1/pay → all_paid=true, paid_amount=100000, request status='paid', paid_by set. File security: (7) GET /api/files/{fid}/download?token={JWT} returns 200 application/pdf with the exact bytes; (8) no token → 401; (9) bad token → 401; (10) unknown file_id → 404; (11) Bearer header auth also works. Accounts overview: (12) site.rows contains our row with est_total=100000, paid=100000, pending=0, status=paid, po_number, milestones[]; aggregates paid_total>=100000. Admin dashboard: (13) site_bills {pending, paid, count, milestones[]} present with our milestone labels. Validation: (14) re-approving a paid request → 400; (15) bad items JSON → 400; (16) empty items → 400. Frontend UI (admin 9513242807/Repro@123): Created 'TEST_UI Phase3 Bricks' via the New request modal with PI attached (proc-pi-file / proc-pi-drop). Row rendered with Performa Invoice download link (pi-link-{id}); clicking it 200 application/pdf. Reviewed → Approved (act-approve, act-submit). Issued PO 'TEST-UI-PO-1' with PO PDF (po-number, po-file, po-submit); Purchase Order link (po-link-{id}) then visible. Payment structure modal (ms-{id}) → ms-label-0/1, ms-amt-0/1, ms-save saved '50% advance ₹20,000' + '50% completion ₹20,000'; reopened modal, ms-pay-0 marked first milestone paid, row now shows chip '50% advance: ₹20,000.00 ✓' and pending chip '50% completion: ₹20,000.00 · due —'. Sales page (Site head) reflected the request text and PO number 'TEST-UI-PO-1'. Admin dashboard body contains 'Site Bills', 'PO Payments', and the '% advance' milestone label. No-token GET on /api/files/*/download from the browser context correctly returned 401. No console errors observed. Cleanup: deleted the test procurement doc + its pi_file/po_file rows in db.files; db.procurement=0, db.files=0 — pre-launch clean state restored.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Procurement — row header", "issues": ["The row's 'Est. ₹x' is computed on the client as sum(items.qty * items.est_cost) and does NOT include the milestone total. When accounts sets a different milestone total (e.g. 40k) than the PI est (0 in our test), users see two different numbers side by side on the row and again inside the milestone chips. Consider showing 'Est. (PI) ₹x · PO ₹y' or preferring milestones once set."]},
+      {"screen": "Procurement — milestone chips", "issues": ["Due date on a pending milestone renders 'due —' when the date is blank; the chip visually says nothing useful. When accounts leaves date blank via UI it stores empty string. Consider defaulting due to today or hiding the ' · due —' suffix."]},
+      {"screen": "Procurement — MilestoneDialog UX", "issues": ["Clicking 'Save structure' immediately closes the modal (onSaved). Users who want to save then pay have to reopen the modal to click Pay. Non-blocking, but a small friction — either keep the modal open after Save (and refresh req.milestones inline), or move Pay onto the row itself."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3.py",
+    "/app/test_reports/pytest/phase3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1620 lines. Splitting into modules (procurement.py, accounts.py, files.py, dashboards.py, payments.py) is overdue.",
+    "GET /api/files/{file_id}/download authenticates the JWT but does NOT scope by owner/role — ANY authenticated user (site_manager of another project, post_sales, etc.) can download ANY file (PI/PO/whatever) if they know its file_id. file_id is a random hex so hard to guess, but a stricter check (owner/role/attached-doc access) is advisable, especially since file_ids leak into responses like /procurement (list) which is filtered for site_managers but visible to everyone else in full.",
+    "Token in URL query string (`?token=<JWT>`) is convenient for <a href> download but the JWT will end up in server access logs and browser history. Consider short-lived signed URLs (HMAC over file_id+exp) rather than the raw session JWT.",
+    "issue_po allows re-issuing a PO on a request already in status po_issued (`doc['status'] not in ('approved','po_issued')`). This is by design (to correct a mistake) but it silently overwrites po_number and po_file with no audit trail. Store po_history[] or at least a revised_at timestamp.",
+    "pay_milestone re-computes total_paid from milestones and blindly sets paid_amount = sum. There is no idempotency check — hitting the endpoint twice on the same milestone just re-stamps paid_date/paid_amount. Consider 409 when the milestone is already paid, or explicit ?force=true.",
+    "set_milestones REPLACES the entire milestones array. If accounts submits a shorter list than what exists, previously-paid milestones would silently disappear (their status is not carried into a shorter array). Guard against reducing length when any status='paid'.",
+    "save_upload accepts any file extension based on filename suffix — server.py doesn't validate that the content-type actually matches the allowed set (.pdf/.jpg/.jpeg/.png/.webp). A malicious client could upload arbitrary bytes labelled as .pdf. Add MIME sniffing or an allow-list check.",
+    "get_object uses a synchronous `requests.get(...)` inside an async endpoint (download_file). Under load this blocks the event loop. Use httpx.AsyncClient or run in a threadpool.",
+    "Object storage init calls `requests.post(...)` synchronously in startup and in every put/get; also caches STORAGE_KEY globally with no expiry handling. Fine for now, but wrap in try/except so a temporarily unreachable proxy doesn't 500 file downloads.",
+    "Frontend api.js fileUrl() reads localStorage token at call time but the <a href> is snapshotted into the DOM at render time; after a token refresh/logout, stale hrefs will 401. Consider re-rendering on token change or generating an ephemeral URL server-side.",
+    "Procurement.jsx MilestoneDialog: Save closes the modal, so the 'Pay' buttons rendered from local `ms` state are never usable in the same flow as save. Prevents an accidental fat-finger 'Save + Pay in same modal' happy path.",
+    "Site head Est.total shown in accounts_overview uses milestones sum when present else items est_cost sum. The Sales.jsx row shows this correctly, but the AdminDashboard Site Bills card only lists individual milestones, not the parent request total — cannot see whose PO the milestone belongs to at a glance beyond the subject/po_number."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3.py",
+    "/app/test_reports/iteration_8.json"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% of exercised flows"},
+  "test_credentials": "Admin 9513242807 / Repro@123 verified.",
+  "seed_data_creation": "Backend pytest created 1 procurement (TEST_Phase3 Cement + Steel) with a PI + PO PDF and 2 milestones, then deleted itself + both files in teardown. Frontend UI created 1 procurement (TEST_UI Phase3 Bricks) with PI + PO PDF and 2 milestones (advance paid), then MANUAL cleanup via mongo. Final DB state: db.procurement=0, db.files=0 — pre-launch clean.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-3 fully verified. Regression suite: test_phase1.py (9/9) + test_phase2.py (4/4) + test_phase3.py (16/16) = 29/29. test_phase3.py uses module-scoped fixtures that also self-clean the created procurement + files. Object storage is live and healthy at INTEGRATION_PROXY_URL. If future phases add per-file ACL, revisit the file-download authZ concerns listed in critical_code_review_comments.",
+  "rca of the issue": "N/A — no bugs found."
+}

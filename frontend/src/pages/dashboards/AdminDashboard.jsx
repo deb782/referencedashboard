@@ -43,8 +43,8 @@ export default function AdminDashboard({ stats, user }) {
         {projects.length === 0 && <div className="xl:col-span-2"><EmptyState icon={Building2} title="No projects yet" hint="Create projects and upload inventory to see live pivots." /></div>}
       </div>
 
-      {/* Procurement queue */}
-      <div className="mt-6">
+      {/* Procurement queue + Site bills */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
         <SectionCard title="Procurement · Needs Action"
           action={<Link to="/procurement" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1">Review all <ArrowUpRight className="w-3.5 h-3.5" /></Link>}>
           {approvals.length === 0 ? (
@@ -58,6 +58,28 @@ export default function AdminDashboard({ stats, user }) {
                 </Link>
               ))}
             </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title={`Site Bills · PO Payments`}
+          action={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(s.site_bills?.pending)}</b> · Paid <b className="text-ok">{inr(s.site_bills?.paid)}</b></span>}>
+          {!(s.site_bills?.milestones || []).length ? (
+            <EmptyState icon={Package} title="No PO milestones" hint="Payment structures set by accounts show here." />
+          ) : (
+            <table className="w-full">
+              <thead><tr className="border-b border-agborder"><th className="th">Milestone</th><th className="th">PO</th><th className="th">Due</th><th className="th text-right">Amount</th><th className="th">Status</th></tr></thead>
+              <tbody>
+                {s.site_bills.milestones.map((m, i) => (
+                  <tr key={i} className="row">
+                    <td className="td font-semibold">{m.label}<div className="text-[11px] text-ink2 font-normal">{m.subject}</div></td>
+                    <td className="td font-mono-num text-ink2">{m.po_number || "—"}</td>
+                    <td className="td font-mono-num text-ink2">{m.due || "—"}</td>
+                    <td className="td text-right font-mono-num">{inr(m.amount)}</td>
+                    <td className="td"><StatusPill status={m.status === "paid" ? "paid" : "pending"} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </SectionCard>
       </div>
