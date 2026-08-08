@@ -1,7 +1,10 @@
 import { Link } from "react-router-dom";
 
 export const inr = (n) =>
-  "\u20B9" + Math.round(Number(n) || 0).toLocaleString("en-IN");
+  "\u20B9" + (Number(n) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export const num2 = (n) =>
+  (Number(n) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const inrCompact = (n) => {
   const v = Number(n) || 0;

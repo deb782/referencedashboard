@@ -116,13 +116,16 @@ class Project(BaseModel):
     project_id: str = Field(default_factory=lambda: new_id("proj"))
     name: str
     location: str = ""
+    kind: str = ""                  # e.g. "Agricultural Plots" / "Residential"
     site_manager_id: Optional[str] = None
+    columns: list = []              # [{key,label,tag}] tag: plot_id|area|charge|total|reference|ignore
     created_at: str = Field(default_factory=now)
 
 
 class ProjectCreate(BaseModel):
     name: str
     location: str = ""
+    kind: str = ""
     site_manager_id: Optional[str] = None
 
 
@@ -131,9 +134,9 @@ class Unit(BaseModel):
     unit_id: str = Field(default_factory=lambda: new_id("unit"))
     project_id: str
     plot_number: str
-    area_sqft: float = 0
-    plc_details: dict = {}          # {east_facing:X, hill_view:Y, corner:Z}
-    other_charges: dict = {}        # {infra_dev, legal, club, maintenance, ifms, gst_rate, sheet_grand_total}
+    area: float = 0
+    total: float = 0                # Net Payable / grand total for this plot
+    data: dict = {}                 # {column_key: value} for every mapped column
     status: Literal["available", "sold"] = "available"
     # sale details (filled by post_sales)
     buyer_name: Optional[str] = None
@@ -144,6 +147,17 @@ class Unit(BaseModel):
     sold_by: Optional[str] = None
     sold_at: Optional[str] = None
     created_at: str = Field(default_factory=now)
+
+
+class PlotUpsert(BaseModel):
+    plot_number: str
+    data: dict = {}
+
+
+class ColumnMap(BaseModel):
+    key: str
+    label: str
+    tag: Literal["plot_id", "area", "charge", "total", "reference", "ignore"]
 
 
 class ScheduleRow(BaseModel):
@@ -455,6 +469,14 @@ async def delete_project(project_id: str,
 
 
 # ----- units --------------------------------------------------------------
+def _plot_key(pn: str):
+    """Sort key: numeric-aware so 1,2,10 sort naturally."""
+    s = str(pn or "")
+    import re as _re
+    m = _re.match(r"^\s*(\d+(?:\.\d+)?)", s)
+    return (0, float(m.group(1)), s) if m else (1, 0.0, s)
+
+
 @api.get("/units")
 async def list_units(project_id: Optional[str] = None,
                       status: Optional[str] = None,
@@ -466,7 +488,9 @@ async def list_units(project_id: Optional[str] = None,
         q["status"] = status
     if user.role == "site_manager" and user.project_id:
         q["project_id"] = user.project_id
-    return await db.units.find(q, {"_id": 0}).sort("plot_number", 1).to_list(2000)
+    rows = await db.units.find(q, {"_id": 0}).to_list(5000)
+    rows.sort(key=lambda u: _plot_key(u.get("plot_number")))
+    return rows
 
 
 def _num(v) -> float:
@@ -574,101 +598,200 @@ def _detect_header(rows: list):
     return header_idx, {k: fuzzy(k) for k in COL_SYNS}
 
 
-@api.post("/units/import")
-async def import_units(project_id: str = Form(...),
-                        file: UploadFile = File(...),
-                        user: User = Depends(require_roles("admin"))):
-    """Import units from a Vacation Village-style RERA cost sheet.
+def _slug(label: str, taken: set) -> str:
+    import re as _re
+    s = _re.sub(r"[^a-z0-9]+", "_", str(label or "").strip().lower()).strip("_")
+    s = s or "col"
+    base, i = s, 2
+    while s in taken:
+        s = f"{base}_{i}"; i += 1
+    taken.add(s)
+    return s
 
-    Columns matched (case-insensitive, whitespace-tolerant):
-    UNIT NO. · EXTENT (SFT) · Basic Sale Price · East Facing PLC · Hill View PLC ·
-    CORNER PLC · Infrastructure & development charges · GST 18% ·
-    Legal and Administrative Charges · GST 18% · Club membership · GST 18% ·
-    Advance maintenance Charges for 2 years · GST 18% · IFMS · Grand Total
-    """
+
+def _suggest_tag(label: str, samples: list) -> str:
+    l = str(label or "").strip().lower()
+    if any(s in l for s in COL_SYNS["unit_no"]):
+        return "plot_id"
+    if any(s in l for s in ["net payable", "total payable", "grand total",
+                            "net amount", "total amount", "total consideration"]):
+        return "total"
+    if any(s in l for s in COL_SYNS["extent"]):
+        return "area"
+    if any(s in l for s in ["guidance", "reference", "market value"]):
+        return "reference"
+    # numeric-looking columns default to charge; text columns to ignore
+    numeric = sum(1 for v in samples if _num(v) != 0)
+    if "gst" in l or "%" in l:
+        return "charge"
+    return "charge" if numeric >= max(1, len(samples) // 2) else "ignore"
+
+
+def _parse_sheet(raw: bytes, fname: str):
+    rows = _read_tabular(raw, fname)
+    if not rows or not any(any(r) for r in rows):
+        raise HTTPException(400, "The uploaded file is empty or unreadable")
+    # header row = the row with the most non-empty text cells in first 30
+    best_i, best_score = 0, -1
+    for i, row in enumerate(rows[:30]):
+        cells = [str(c).strip() for c in row if c not in (None, "")]
+        texty = sum(1 for c in cells if any(ch.isalpha() for ch in c))
+        if texty > best_score:
+            best_score, best_i = texty, i
+    header = [str(c).strip() for c in rows[best_i]]
+    data_rows = [r for r in rows[best_i + 1:] if any(r)]
+    return header, data_rows
+
+
+@api.post("/units/preview")
+async def preview_units(project_id: str = Form(...),
+                         file: UploadFile = File(...),
+                         user: User = Depends(require_roles("admin"))):
     proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not proj:
         raise HTTPException(404, "Project not found")
     raw = await file.read()
-    rows = _read_tabular(raw, (file.filename or "").lower())
-    if not rows or not any(any(r) for r in rows):
-        raise HTTPException(400, "The uploaded file is empty or unreadable")
-
-    header_idx, idx = _detect_header(rows)
-    if header_idx is None:
-        preview = "; ".join(
-            " | ".join(str(c) for c in r if c not in (None, ""))
-            for r in rows[:6] if any(r)
-        )[:280]
-        raise HTTPException(
-            400,
-            "Could not find a header row. The sheet needs a row with a "
-            "'Unit No.'/'Plot No.' column plus price/area columns. "
-            f"First rows seen: {preview}")
-
-    inserted, errors = 0, []
-    for line, row in enumerate(rows[header_idx + 1:], start=header_idx + 2):
-        if not any(row):
+    header, data_rows = _parse_sheet(raw, (file.filename or "").lower())
+    taken: set = set()
+    columns = []
+    for ci, label in enumerate(header):
+        if not str(label).strip():
             continue
+        samples = [r[ci] for r in data_rows[:6] if ci < len(r) and r[ci] not in (None, "")]
+        columns.append({
+            "key": _slug(label, taken),
+            "label": str(label).strip(),
+            "col_index": ci,
+            "tag": _suggest_tag(label, samples),
+            "samples": [str(s) for s in samples[:3]],
+        })
+    return {"columns": columns, "row_count": len(data_rows),
+            "filename": file.filename}
+
+
+@api.post("/units/commit")
+async def commit_units(project_id: str = Form(...),
+                        file: UploadFile = File(...),
+                        mapping: str = Form(...),
+                        user: User = Depends(require_roles("admin"))):
+    import json as _json
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    cols = _json.loads(mapping)  # [{key,label,col_index,tag}]
+    plot_col = next((c for c in cols if c["tag"] == "plot_id"), None)
+    if not plot_col:
+        raise HTTPException(400, "Please tag exactly one column as 'Plot ID'.")
+    area_col = next((c for c in cols if c["tag"] == "area"), None)
+    total_col = next((c for c in cols if c["tag"] == "total"), None)
+    keep = [c for c in cols if c["tag"] != "ignore"]
+
+    raw = await file.read()
+    _, data_rows = _parse_sheet(raw, (file.filename or "").lower())
+
+    def gv(row, c):
+        i = c["col_index"]
+        return row[i] if i < len(row) else None
+
+    def plot_str(v):
+        s = str(v).strip()
+        return s[:-2] if s.endswith(".0") else s
+
+    inserted, updated, skipped, errors = 0, 0, [], []
+    for line, row in enumerate(data_rows, start=2):
         try:
-            u_no = row[idx["unit_no"]] if idx["unit_no"] is not None else None
-            if u_no is None or str(u_no).strip() == "":
+            raw_plot = gv(row, plot_col)
+            if raw_plot is None or str(raw_plot).strip() == "":
                 continue
-            plot = str(u_no).strip()
-            if plot.endswith(".0"):
-                plot = plot[:-2]
-            area = _num(row[idx["extent"]] if idx["extent"] is not None else 0)
-            bsp = _num(row[idx["bsp"]] if idx["bsp"] is not None else 0)
-
-            def cell(field):
-                return _num(row[idx[field]]) if idx.get(field) is not None else 0.0
-
-            plc = {
-                "east_facing": cell("east"),
-                "hill_view": cell("hill"),
-                "corner": cell("corner"),
-                "cv_facing": cell("cv_facing"),
-                "multi_plc": cell("multi_plc"),
-            }
-            other = {
-                "bsp": bsp,
-                "guidance_value": cell("guidance"),
-                "infra_dev": cell("infra"),
-                "electricity_infra": cell("electricity"),
-                "legal": cell("legal"),
-                "khata_registration": cell("khata"),
-                "club": cell("club"),
-                "maintenance": cell("maint"),
-                "ifms": cell("ifms"),
-                "sinking_fund": cell("sinking"),
-                "stamp_duty": cell("stamp"),
-                "gst_rate": 0.18,
-                "sheet_grand_total": cell("grand"),
-            }
+            plot = plot_str(raw_plot)
+            data = {}
+            for c in keep:
+                if c["tag"] in ("plot_id",):
+                    continue
+                val = gv(row, c)
+                if c["tag"] in ("charge", "total", "area", "reference"):
+                    data[c["key"]] = round(_num(val), 2)
+                else:
+                    data[c["key"]] = "" if val is None else str(val).strip()
+            area = round(_num(gv(row, area_col)), 2) if area_col else 0.0
+            total = round(_num(gv(row, total_col)), 2) if total_col else 0.0
             existing = await db.units.find_one(
                 {"project_id": project_id, "plot_number": plot},
                 {"_id": 0, "unit_id": 1, "status": 1})
-            payload = {
-                "project_id": project_id,
-                "plot_number": plot,
-                "area_sqft": area,
-                "plc_details": plc,
-                "other_charges": other,
-            }
+            payload = {"project_id": project_id, "plot_number": plot,
+                       "area": area, "total": total, "data": data}
             if existing:
-                if existing.get("status", "available") != "sold":
-                    await db.units.update_one({"unit_id": existing["unit_id"]},
-                                               {"$set": payload})
-                else:
-                    errors.append({"row": line, "plot": plot,
-                                   "error": "already sold; not overwritten"})
-                    continue
+                if existing.get("status") == "sold":
+                    skipped.append(plot); continue
+                await db.units.update_one({"unit_id": existing["unit_id"]},
+                                           {"$set": payload})
+                updated += 1
             else:
                 await db.units.insert_one(Unit(**payload).model_dump())
-            inserted += 1
+                inserted += 1
         except Exception as e:
             errors.append({"row": line, "error": str(e)})
-    return {"inserted": inserted, "errors": errors}
+
+    # persist the column schema on the project
+    schema = [{"key": c["key"], "label": c["label"], "tag": c["tag"]} for c in cols]
+    await db.projects.update_one({"project_id": project_id},
+                                  {"$set": {"columns": schema}})
+    return {"inserted": inserted, "updated": updated,
+            "skipped_sold": skipped, "errors": errors, "columns": schema}
+
+
+@api.post("/projects/{project_id}/plots")
+async def add_plot(project_id: str, payload: PlotUpsert,
+                    user: User = Depends(require_roles("admin"))):
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    plot = str(payload.plot_number).strip()
+    if not plot:
+        raise HTTPException(400, "Plot number is required")
+    if await db.units.find_one({"project_id": project_id, "plot_number": plot}):
+        raise HTTPException(400, f"Plot {plot} already exists in this project")
+    area, total, data = _clean_plot_data(proj, payload.data)
+    u = Unit(project_id=project_id, plot_number=plot, area=area, total=total, data=data)
+    await db.units.insert_one(u.model_dump())
+    return u.model_dump()
+
+
+@api.patch("/units/{unit_id}")
+async def edit_plot(unit_id: str, payload: PlotUpsert,
+                     user: User = Depends(require_roles("admin"))):
+    unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
+    if not unit:
+        raise HTTPException(404, "Plot not found")
+    proj = await db.projects.find_one({"project_id": unit["project_id"]}, {"_id": 0})
+    area, total, data = _clean_plot_data(proj or {}, payload.data)
+    await db.units.update_one({"unit_id": unit_id}, {"$set": {
+        "plot_number": str(payload.plot_number).strip(),
+        "area": area, "total": total, "data": data}})
+    return {"ok": True}
+
+
+def _clean_plot_data(proj: dict, data: dict):
+    cols = {c["key"]: c for c in (proj.get("columns") or [])}
+    area = total = 0.0
+    clean = {}
+    for k, v in (data or {}).items():
+        c = cols.get(k)
+        tag = c["tag"] if c else "charge"
+        if tag == "plot_id" or tag == "ignore":
+            if tag == "ignore":
+                clean[k] = "" if v is None else str(v)
+            continue
+        if tag in ("charge", "total", "area", "reference"):
+            num = round(_num(v), 2)
+            clean[k] = num
+            if tag == "area":
+                area = num
+            if tag == "total":
+                total = num
+        else:
+            clean[k] = "" if v is None else str(v)
+    return area, total, clean
 
 
 @api.post("/units/{unit_id}/sell")
@@ -934,6 +1057,45 @@ async def _sum_field(coll, match: dict, field: str) -> float:
     return float(rows[0]["s"]) if rows else 0.0
 
 
+async def _projects_overview():
+    projects = await db.projects.find({}, {"_id": 0}).sort("created_at", 1).to_list(50)
+    out = []
+    con = {"projects": len(projects), "total_units": 0, "available": 0, "sold": 0,
+           "booked_value": 0.0, "received_total": 0.0, "pending_total": 0.0}
+    for p in projects:
+        pid = p["project_id"]
+        units = await db.units.find(
+            {"project_id": pid},
+            {"_id": 0, "status": 1, "total": 1, "data": 1, "final_price": 1}).to_list(5000)
+        sold = [u for u in units if u.get("status") == "sold"]
+        booked = round(sum((u.get("final_price") or 0) for u in sold), 2)
+        received = round(await _sum_amount(db.payments, {"project_id": pid, "status": "received"}), 2)
+        pending = round(await _sum_amount(db.payments, {"project_id": pid, "status": "pending"}), 2)
+        pivots = []
+        for c in (p.get("columns") or []):
+            if c["tag"] not in ("charge", "total", "reference"):
+                continue
+            k = c["key"]
+            pivots.append({
+                "key": k, "label": c["label"], "tag": c["tag"],
+                "sum_all": round(sum(_num(u.get("data", {}).get(k)) for u in units), 2),
+                "sum_sold": round(sum(_num(u.get("data", {}).get(k)) for u in sold), 2),
+            })
+        out.append({
+            "project_id": pid, "name": p["name"], "kind": p.get("kind", ""),
+            "columns": p.get("columns", []),
+            "total_units": len(units), "available": len(units) - len(sold), "sold": len(sold),
+            "booked_value": booked, "received_total": received, "pending_total": pending,
+            "pivots": pivots,
+        })
+        con["total_units"] += len(units); con["available"] += len(units) - len(sold)
+        con["sold"] += len(sold); con["booked_value"] += booked
+        con["received_total"] += received; con["pending_total"] += pending
+    for k in ("booked_value", "received_total", "pending_total"):
+        con[k] = round(con[k], 2)
+    return out, con
+
+
 @api.get("/dashboard")
 async def dashboard(user: User = Depends(get_current_user)):
     today = datetime.now(timezone.utc).date().isoformat()
@@ -960,6 +1122,7 @@ async def dashboard(user: User = Depends(get_current_user)):
 
     # ================= ADMIN =================
     if user.role == "admin":
+        by_project, consolidated = await _projects_overview()
         sales_booked = await _sum_field(db.units, {"status": "sold"}, "final_price")
         pending_amt = await _sum_amount(db.payments, {"status": "pending"})
         received_amt = await _sum_amount(db.payments, {"status": "received"})
@@ -978,11 +1141,14 @@ async def dashboard(user: User = Depends(get_current_user)):
             "procurement_approvals": approvals,
             "procurement_paid": proc_paid,
             "recent_sales": recent_sales,
+            "by_project": by_project,
+            "consolidated": consolidated,
         })
         return base
 
     # ================= POST-SALES =================
     if user.role == "post_sales":
+        by_project, consolidated = await _projects_overview()
         sales_booked = await _sum_field(db.units, {"status": "sold"}, "final_price")
         my_sales = await db.units.count_documents({"status": "sold", "sold_by": user.user_id})
         my_value = await _sum_field(db.units, {"status": "sold", "sold_by": user.user_id}, "final_price")
@@ -993,11 +1159,14 @@ async def dashboard(user: User = Depends(get_current_user)):
             "my_sales_count": my_sales,
             "my_sales_value": my_value,
             "recent_sales": recent_sales,
+            "by_project": by_project,
+            "consolidated": consolidated,
         })
         return base
 
     # ================= ACCOUNTS =================
     if user.role == "accounts":
+        by_project, consolidated = await _projects_overview()
         pending_amt = await _sum_amount(db.payments, {"status": "pending"})
         overdue_q = {"status": "pending", "due_date": {"$lt": today}}
         overdue_count = await db.payments.count_documents(overdue_q)
@@ -1025,6 +1194,8 @@ async def dashboard(user: User = Depends(get_current_user)):
             "payments_received_amount": received_amt,
             "procurement_awaiting_po": awaiting_po,
             "watchlist": watchlist,
+            "by_project": by_project,
+            "consolidated": consolidated,
         })
         return base
 

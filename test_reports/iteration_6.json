@@ -1,0 +1,31 @@
+{
+  "summary": "Phase-1 (dynamic inventory + column mapping + two-column dashboards + add/edit plot + sell schedule + reset password) tested end-to-end. Backend: new pytest suite /app/backend/tests/test_phase1.py — 9/9 PASSED (preview column detection & tag suggestions, commit requires plot_id tag, commit-persists-schema+units to VV with 2dp rounding, ascending numeric sort on CVF, admin dashboard by_project pivots + consolidated strip with CVF total_units=47 and BSP sum ~2.77e8, add_plot with duplicate 400 + edit plot round-trip, admin reset-password to phone, sell_unit with instalment name in notes and 'On Offer of Possession' as due_date string). Frontend: dashboard (dashboard-page + 2 dash-project-* cards, Consolidated strip, no <select> project switcher, CVF pivot table with BSP ₹27,68,69,130.00 in 2dp INR, VV 'No pivot yet'). Units page: CVF renders 47 rows numerically sorted (32,38,40,41,42,43,44,45,46,47…), italic GUIDANCE VALUE reference column, upload-{pid} + add-plot-{pid} testids present, 303 edit-plot-* icons. Upload wizard on VV: preview 7 cols with correct suggested tags (UNIT NO.→Plot ID, EXTENT (SFT)→Area, Grand Total→Net Payable/Total, others→Charge (summed)), commit succeeds with 'Imported: 3 added, 0 updated' and 'Saved 7 columns as this project\\'s structure'. Add plot modal: plot-number + 18 plot-field-* inputs + plot-save. Edit plot modal opens for existing plots. Sell dialog: all schedule testids (s-buyer, s-name-0, s-row-date-0, s-possession-0, s-row-amt-0, s-add-row, s-submit) present; checking s-possession-0 hides the date input and shows 'On Offer of Possession' label. Team page (sidebar 'Team' → /users) renders correctly with Add member + key icon reset action. Global search works. No console errors on Dashboard/Units/Team/Sales pages during full run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Router", "issues": ["Direct URL /team renders a blank page with no 404 (only the sidebar link works). Consider adding a catch-all NotFound route. Non-blocking for phase-1."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase1.py",
+    "/app/test_reports/pytest/phase1_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1320 lines; consider splitting the inventory importer (COL_SYNS, _detect_header, _slug, _suggest_tag, _parse_sheet, /units/preview, /units/commit) into a units_inventory.py module.",
+    "backend/server.py ScheduleRow.due_date is a required str and 'On Offer of Possession' is passed as a magic string by the frontend. Would be cleaner to introduce an optional on_possession: bool field on ScheduleRow and derive display server-side; today the string works but couples FE/BE by convention. Not a phase-1 bug.",
+    "Python round() uses banker's rounding — round(111.115,2)==111.11, round(111.125,2)==111.12. Not incorrect but importers using .5-boundary values may see 'off-by-1 paisa' in edge cases; document or switch to Decimal ROUND_HALF_UP if that matters for reporting.",
+    "list_units sort by _plot_key falls back to (1,0.0,s) for non-numeric — this places all alpha plots (e.g. TEST_9001) at the end which is fine, but sub-ordering of non-numeric plots is purely lexicographic, which may surprise users on plots like 'A-10' vs 'A-2'.",
+    "The Team sidebar link points to /users but the label is 'Team' — consider aliasing /team → /users in the router to avoid the blank page users may hit."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase1.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% of exercised flows"},
+  "test_credentials": "Admin 9513242807 / Repro@123 (verified). credentials.md line 14 lists ADMIN_PHONE=9999999999 (env default) but the seeded admin phone is 9513242807 — the login only accepts 9513242807. Consider updating credentials.md line 14 or reconciling.",
+  "seed_data_creation": "During the pytest run: (a) test admin uploaded 3 rows to VV via /units/commit, then cleanup restored VV.columns=null and removed TVV-* units. (b) added TEST_9001 to CVF then deleted. (c) sold one CVF plot with TEST_Buyer then reverted to available and deleted its payments. (d) created + deleted a throwaway post_sales user 9000000001 for the reset-password test. During the UI run: 3 rows (UI-T1..T3) were added to VV via the wizard and VV.columns was saved to 7 cols — these were NOT auto-reverted by the UI script. NOTE: main agent may want to re-null VV.columns and delete UI-T1..T3 units if the desired starting state is 'VV has no schema'.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-1 fully verified. Reusable pytest suite at /app/backend/tests/test_phase1.py covers preview/commit/add/edit/dashboard/reset-password/sell. Existing suites (test_units_import.py, test_cvf_import.py) target the legacy /units/import endpoint which has been REMOVED — they should be considered obsolete for future runs (they'll fail with 404s on POST /units/import). Note: after the UI wizard test the Vacation Village project now has columns saved (7 cols) and 3 test units UI-T1/UI-T2/UI-T3 exist; if a clean state is needed, unset projects.columns for proj_53fb360c1f0a and delete units with plot_number LIKE 'UI-T%'.",
+  "rca of the issue": "N/A — no bugs found in Phase-1 scope. Only observation: /team URL has no route; sidebar link uses /users and works. Router catch-all missing but not part of phase-1 requirements."
+}

@@ -4,7 +4,7 @@ import { Plus, Trash2, Building2, MapPin } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { PageHeader, EmptyState, Modal } from "@/components/ui";
 
-const emptyForm = { name: "", location: "", site_manager_id: "" };
+const emptyForm = { name: "", location: "", kind: "", site_manager_id: "" };
 
 export default function Projects() {
   const [rows, setRows] = useState([]);
@@ -47,12 +47,13 @@ export default function Projects() {
       <div className="card overflow-hidden ag-rise">
         <table className="w-full">
           <thead><tr className="border-b border-agborder bg-surfacealt/50">
-            <th className="th">Name</th><th className="th">Location</th><th className="th">Site Manager</th><th className="th">Created</th><th className="th text-right">Action</th>
+            <th className="th">Name</th><th className="th">Type</th><th className="th">Location</th><th className="th">Site Manager</th><th className="th">Created</th><th className="th text-right">Action</th>
           </tr></thead>
           <tbody>
             {rows.map(p => (
               <tr key={p.project_id} className="row" data-testid={`project-row-${p.project_id}`}>
                 <td className="td font-semibold">{p.name}</td>
+                <td className="td text-ink2">{p.kind || "—"}</td>
                 <td className="td text-ink2">{p.location || "—"}</td>
                 <td className="td text-ink2">{smName(p.site_manager_id)}</td>
                 <td className="td text-ink2 font-mono-num text-xs">{(p.created_at || "").slice(0,10)}</td>
@@ -63,7 +64,7 @@ export default function Projects() {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={5}><EmptyState icon={Building2} title="No projects yet" hint="Create your first project to start uploading units." /></td></tr>}
+            {rows.length === 0 && <tr><td colSpan={6}><EmptyState icon={Building2} title="No projects yet" hint="Create your first project to start uploading units." /></td></tr>}
           </tbody>
         </table>
       </div>
@@ -77,6 +78,8 @@ export default function Projects() {
           <div className="space-y-4">
             <div><label className="label">Name *</label>
               <input value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} className="input" data-testid="proj-name" placeholder="e.g. Central Vista Farms" /></div>
+            <div><label className="label">Project type</label>
+              <input value={form.kind} onChange={(e) => setForm({...form, kind: e.target.value})} className="input" data-testid="proj-kind" placeholder="e.g. Agricultural Plots / Residential" /></div>
             <div><label className="label"><MapPin className="w-3 h-3 inline mr-1" />Location</label>
               <input value={form.location} onChange={(e) => setForm({...form, location: e.target.value})} className="input" /></div>
             <div><label className="label">Site Manager</label>

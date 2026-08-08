@@ -61,7 +61,7 @@ function PaymentTable({ rows, unitOf, onMark, canMark, today }) {
   return (
     <table className="w-full">
       <thead><tr className="border-b border-agborder bg-surfacealt/50">
-        <th className="th">Plot</th><th className="th">Buyer</th><th className="th">#</th><th className="th">Due date</th><th className="th text-right">Amount</th><th className="th">Status</th><th className="th text-right">Action</th>
+        <th className="th">Plot</th><th className="th">Buyer</th><th className="th">Instalment</th><th className="th">Due date</th><th className="th text-right">Amount</th><th className="th">Status</th><th className="th text-right">Action</th>
       </tr></thead>
       <tbody>
         {rows.map(p => {
@@ -71,7 +71,7 @@ function PaymentTable({ rows, unitOf, onMark, canMark, today }) {
             <tr key={p.payment_id} className="row" data-testid={`payment-row-${p.payment_id}`}>
               <td className="td font-mono-num font-bold">{u.plot_number || p.unit_id}</td>
               <td className="td text-ink2">{u.buyer_name || "—"}</td>
-              <td className="td text-ink2 font-mono-num">{p.seq}</td>
+              <td className="td text-ink2">{p.notes || `#${p.seq}`}</td>
               <td className={`td font-mono-num ${overdue ? "text-bad font-semibold" : "text-ink2"}`}>{p.due_date}</td>
               <td className="td text-right font-mono-num font-semibold">{inr(p.amount)}</td>
               <td className="td"><StatusPill status={p.status === "received" ? "received" : overdue ? "overdue" : "pending"} /></td>
