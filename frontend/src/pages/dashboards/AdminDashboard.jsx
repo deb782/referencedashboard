@@ -91,9 +91,9 @@ function ProjectPivot({ p, idx }) {
         <div className="font-display text-xl font-bold text-ink">{p.name}</div>
         <div className="text-xs text-ink2 mt-0.5">{p.kind || "Project"}</div>
         <div className="grid grid-cols-3 gap-3 mt-4">
-          <Mini label="Booked" value={inr(p.booked_value)} />
-          <Mini label="Sold" value={`${p.sold}/${p.total_units}`} />
-          <Mini label="Pending" value={inr(p.pending_total)} />
+          <Mini label="Total Sold" value={inr(p.booked_value)} />
+          <Mini label="Total Received" value={inr(p.received_total)} />
+          <Mini label="Total Pending" value={inr(p.pending_total)} />
         </div>
       </div>
       {pivots.length === 0 ? (

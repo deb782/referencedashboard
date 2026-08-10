@@ -186,3 +186,15 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Verified in preview: with NaN still in DB, GET /api/units returns 200 and the field renders as null. After cleanup, 0 non-finite values remain; dashboard/projects/units/notifications/accounts/procurement all 200.
 - NOTE: could not read production runtime logs (deployment_agent only does static analysis) — root cause confirmed by reproducing the exact mechanism in preview.
 - ACTION FOR USER: Redeploy to push this fix to production; the 520 after login will be resolved.
+
+---
+## PHASE 5 — Dashboard money cards + Book-plot form redesign (2026-08-10)
+- Admin Dashboard project cards: the 3 mini stats are now Total Sold / Total Received / Total Pending (was Booked/Sold/Pending).
+  - _projects_overview: booked = sum(final_price or total) for SOLD plots (= Grand Total). received = sum(paid_amount over all project payments, incl partials). pending = max(0, booked - received). Verified end-to-end: sale of ₹80.79L → Total Sold 80.79L, Received 0, Pending 80.79L; after a ₹30L receipt → Received 30L, Pending 50.79L.
+- Book plot (Sell) form redesign (Units.jsx SellDialog, now receives project columns):
+  - Title 'Book plot N'. Buyer NAME only (removed buyer contact). Sale date required. Final price prefilled = plot Grand Total (unit.total). Booking amount.
+  - NEW read-only 'Payment breakdown — from plot details' table: one row per plot column (from edit form) with its value; area shown as plain number, money as ₹, grand total bold, reference italic.
+  - BELOW it: the manual 'Payment schedule' table (instalment name / due date / On Offer of Possession / amount) — the prior feature, restored under this name.
+- Permissions: post_sales can now EDIT plot details (edit-plot button + PATCH /units/{id} role opened to admin+post_sales). Add-plot stays admin-only.
+- Verified via screenshots (dashboard labels, book form) + curl (sale/receipt/dashboard math, edit endpoint 200). NOTE: an accidental test PATCH with empty data wiped CVF plot 32 then re-imported CVF (47 updated) to restore; DB pre-launch clean (0 sold/0 payments), rates CVF 2500 / VV 3200.
+- ACTION FOR USER: Redeploy to push to production.

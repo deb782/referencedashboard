@@ -113,7 +113,7 @@ function ProjectInventory({ project, user }) {
                   <td className="td"><StatusPill status={u.status} /></td>
                   {can(user, "admin", "post_sales") && (
                     <td className="td text-right whitespace-nowrap">
-                      {can(user, "admin") && (
+                      {can(user, "admin", "post_sales") && (
                         <button onClick={() => setPlotDlg({ mode: "edit", unit: u })} className="text-ink2 hover:text-brand mr-3" title="Edit" data-testid={`edit-plot-${u.plot_number}`}>
                           <Pencil className="w-4 h-4" />
                         </button>
@@ -135,7 +135,7 @@ function ProjectInventory({ project, user }) {
       {wizard && <UploadWizard project={project} onClose={() => setWizard(false)} onDone={() => { setWizard(false); load(); }} />}
       {plotDlg && <PlotDialog project={{ ...project, columns: cols }} mode={plotDlg.mode} unit={plotDlg.unit}
                     onClose={() => setPlotDlg(null)} onSaved={() => { setPlotDlg(null); load(); }} />}
-      {sellFor && <SellDialog unit={sellFor} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
+      {sellFor && <SellDialog unit={sellFor} columns={cols} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
     </section>
   );
 }
@@ -283,13 +283,21 @@ function PlotDialog({ project, mode, unit, onClose, onSaved }) {
   );
 }
 
-function SellDialog({ unit, onClose, onSaved }) {
+function SellDialog({ unit, columns, onClose, onSaved }) {
   const [form, setForm] = useState({
-    buyer_name: "", buyer_contact: "", sale_date: new Date().toISOString().slice(0, 10),
+    buyer_name: "", sale_date: new Date().toISOString().slice(0, 10),
     final_price: unit.total || 0, booking_amount: 0,
   });
   const [schedule, setSchedule] = useState([{ name: "", due_date: "", on_possession: false, amount: 0 }]);
   const [busy, setBusy] = useState(false);
+
+  const comps = (columns || []).filter(c => c.tag !== "plot_id" && c.tag !== "ignore");
+  const compVal = (c) => {
+    const v = unit.data?.[c.key];
+    if (c.tag === "reference" && typeof v === "string") return v || "—";
+    if (c.tag === "area") return num2(v);
+    return inr(Number(v || 0));
+  };
 
   const addRow = () => setSchedule([...schedule, { name: "", due_date: "", on_possession: false, amount: 0 }]);
   const rmRow = (i) => setSchedule(schedule.filter((_, idx) => idx !== i));
@@ -297,11 +305,12 @@ function SellDialog({ unit, onClose, onSaved }) {
   const scheduleTotal = schedule.reduce((s, r) => s + Number(r.amount || 0), 0);
 
   const save = async () => {
+    if (!form.sale_date) return toast.error("Sale date is required");
     if (schedule.some(r => !r.amount || (!r.due_date && !r.on_possession))) return toast.error("Each row needs an amount and a due date (or On Offer of Possession)");
     setBusy(true);
     try {
       await api.post(`/units/${unit.unit_id}/sell`, {
-        buyer_name: form.buyer_name, buyer_contact: form.buyer_contact, sale_date: form.sale_date,
+        buyer_name: form.buyer_name, sale_date: form.sale_date,
         final_price: Number(form.final_price), booking_amount: Number(form.booking_amount),
         schedule: schedule.map(r => ({
           due_date: r.on_possession ? "On Offer of Possession" : r.due_date,
@@ -315,29 +324,54 @@ function SellDialog({ unit, onClose, onSaved }) {
   };
 
   return (
-    <Modal size="xl" title={`Sell plot ${unit.plot_number}`} subtitle={`Net payable (reference): ${inr(unit.total)}`}
+    <Modal size="xl" title={`Book plot ${unit.plot_number}`} subtitle={`Net payable (Grand Total): ${inr(unit.total)}`}
       onClose={onClose}
       footer={<>
         <button onClick={onClose} className="btn-secondary">Cancel</button>
         <button onClick={save} disabled={busy} className="btn-primary" data-testid="s-submit">{busy ? "Saving…" : "Confirm sale"}</button>
       </>}>
+      {/* Buyer / booking manual entry */}
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="label">Buyer name</label><input value={form.buyer_name} onChange={(e) => setForm({ ...form, buyer_name: e.target.value })} className="input" data-testid="s-buyer" /></div>
-        <div><label className="label">Buyer contact</label><input value={form.buyer_contact} onChange={(e) => setForm({ ...form, buyer_contact: e.target.value })} className="input font-mono-num" data-testid="s-contact" /></div>
+        <div><label className="label">Buyer name</label><input value={form.buyer_name} onChange={(e) => setForm({ ...form, buyer_name: e.target.value })} className="input" data-testid="s-buyer" placeholder="Buyer's name" /></div>
         <div><label className="label">Sale date *</label><input type="date" value={form.sale_date} onChange={(e) => setForm({ ...form, sale_date: e.target.value })} className="input font-mono-num" data-testid="s-date" /></div>
-        <div><label className="label">Final price</label><input type="number" value={form.final_price} onChange={(e) => setForm({ ...form, final_price: e.target.value })} className="input font-mono-num" data-testid="s-price" /></div>
+        <div><label className="label">Final price <span className="normal-case tracking-normal text-ink2 font-normal">(= Grand Total)</span></label><input type="number" value={form.final_price} onChange={(e) => setForm({ ...form, final_price: e.target.value })} className="input font-mono-num" data-testid="s-price" /></div>
         <div><label className="label">Booking amount</label><input type="number" value={form.booking_amount} onChange={(e) => setForm({ ...form, booking_amount: e.target.value })} className="input font-mono-num" data-testid="s-booking" /></div>
       </div>
 
+      {/* Read-only cost breakdown captured from the plot's edit form */}
+      <div className="mt-6">
+        <div className="overline text-ink mb-2">Payment breakdown <span className="normal-case tracking-normal text-ink2 font-normal text-xs">— from plot details</span></div>
+        {comps.length === 0 ? (
+          <div className="text-xs text-ink2 border border-agborder rounded-md px-3 py-3">No cost components — upload this project's sheet or edit the plot to add them.</div>
+        ) : (
+          <div className="border border-agborder rounded-md overflow-hidden">
+            <table className="w-full">
+              <thead><tr className="bg-surfacealt/60 border-b border-agborder">
+                <th className="th py-2">Component</th><th className="th py-2 text-right">Amount</th>
+              </tr></thead>
+              <tbody>
+                {comps.map(c => (
+                  <tr key={c.key} className="border-b border-agborder last:border-0" data-testid={`s-comp-${c.key}`}>
+                    <td className="td py-2 font-semibold">{c.label}{c.tag === "total" && <span className="text-[10px] text-brand ml-1 font-bold">GRAND TOTAL</span>}{c.tag === "reference" && <span className="text-[10px] text-ink2 ml-1">(ref)</span>}</td>
+                    <td className={`td py-2 text-right ${c.tag === "reference" ? "text-ink2 italic" : "font-mono-num"} ${c.tag === "total" ? "font-bold" : ""}`}>{compVal(c)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Manual payment schedule (installments) */}
       <div className="mt-6">
         <div className="flex justify-between items-center mb-2">
-          <div className="overline text-ink">Payment breakdown</div>
-          <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="s-add-row"><Plus className="w-3.5 h-3.5" /> Add breakdown</button>
+          <div className="overline text-ink">Payment schedule</div>
+          <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="s-add-row"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
         </div>
         <div className="border border-agborder rounded-md overflow-hidden">
           <table className="w-full">
             <thead><tr className="bg-surfacealt/60 border-b border-agborder">
-              <th className="th py-2">Breakdown item</th><th className="th py-2">Due date</th><th className="th py-2 text-right">Amount</th><th></th>
+              <th className="th py-2">Instalment name</th><th className="th py-2">Due date</th><th className="th py-2 text-right">Amount</th><th></th>
             </tr></thead>
             <tbody>
               {schedule.map((r, i) => (
@@ -359,7 +393,7 @@ function SellDialog({ unit, onClose, onSaved }) {
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="bg-surfacealt/40"><td colSpan={2} className="px-3 py-2.5 text-sm font-semibold text-ink">Breakdown total</td><td className="px-3 py-2.5 text-right font-mono-num font-bold">{inr(scheduleTotal)}</td><td></td></tr></tfoot>
+            <tfoot><tr className="bg-surfacealt/40"><td colSpan={2} className="px-3 py-2.5 text-sm font-semibold text-ink">Schedule total</td><td className="px-3 py-2.5 text-right font-mono-num font-bold">{inr(scheduleTotal)}</td><td></td></tr></tfoot>
           </table>
         </div>
       </div>

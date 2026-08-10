@@ -917,7 +917,7 @@ async def add_plot(project_id: str, payload: PlotUpsert,
 
 @api.patch("/units/{unit_id}")
 async def edit_plot(unit_id: str, payload: PlotUpsert,
-                     user: User = Depends(require_roles("admin"))):
+                     user: User = Depends(require_roles("admin", "post_sales"))):
     unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
     if not unit:
         raise HTTPException(404, "Plot not found")
@@ -1409,9 +1409,9 @@ async def _projects_overview():
             {"project_id": pid},
             {"_id": 0, "status": 1, "total": 1, "data": 1, "final_price": 1}).to_list(5000)
         sold = [u for u in units if u.get("status") == "sold"]
-        booked = round(sum((u.get("final_price") or 0) for u in sold), 2)
-        received = round(await _sum_amount(db.payments, {"project_id": pid, "status": "received"}), 2)
-        pending = round(await _sum_amount(db.payments, {"project_id": pid, "status": "pending"}), 2)
+        booked = round(sum((u.get("final_price") or u.get("total") or 0) for u in sold), 2)
+        received = round(await _sum_field(db.payments, {"project_id": pid}, "paid_amount"), 2)
+        pending = round(max(0.0, booked - received), 2)
         pivots = []
         for c in (p.get("columns") or []):
             if c["tag"] not in ("charge", "total", "reference"):
