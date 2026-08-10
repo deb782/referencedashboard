@@ -175,3 +175,14 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Sell form renamed: 'Payment breakdown' heading, 'Add breakdown' button, 'Breakdown item' col, 'Breakdown total' footer (manual empty rows kept).
 - Verified: testing agent iteration_9.json — 6/6 backend + all 5 frontend edits, 0 bugs. Negative rate rejected (422). DB kept pre-launch clean (0 sold/0 payments). Rates set: CVF 2500, VV 3200.
 - ACTION FOR USER: Redeploy to push these to production.
+
+---
+## HOTFIX 3 — Cloudflare 520 after login on production (2026-08-10)
+- Symptom: after login on production, CF 520 "origin returned empty/malformed response". Identical code = 200 in preview.
+- Root cause: NaN/Infinity float values in stored unit data (Excel error cells parsed by openpyxl data_only pass through _num unchanged). Starlette JSONResponse renders with allow_nan=False, so serializing a NaN raises mid-response → empty/invalid origin response → CF 520. Preview data happened to be clean. Reproduced in preview: injecting float('nan') into a unit.total made GET /api/units return 500 (→520 via CF).
+- Fix (backend/server.py):
+  1. SafeJSONResponse(JSONResponse) with recursive _sanitize_nonfinite() (NaN/Inf → null); set as FastAPI default_response_class → ALL endpoints now serialize safely even with pre-existing bad data.
+  2. _num() hardened: non-finite → 0.0 (prevents storing NaN/Inf on future imports).
+- Verified in preview: with NaN still in DB, GET /api/units returns 200 and the field renders as null. After cleanup, 0 non-finite values remain; dashboard/projects/units/notifications/accounts/procurement all 200.
+- NOTE: could not read production runtime logs (deployment_agent only does static analysis) — root cause confirmed by reproducing the exact mechanism in preview.
+- ACTION FOR USER: Redeploy to push this fix to production; the 520 after login will be resolved.

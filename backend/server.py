@@ -10,6 +10,7 @@ import csv
 import os
 import uuid
 import json
+import math
 import logging
 import requests
 from datetime import datetime, timezone
@@ -21,7 +22,7 @@ from dotenv import load_dotenv
 from fastapi import (
     Depends, FastAPI, File, Form, HTTPException, Header, Query, UploadFile,
 )
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -111,7 +112,24 @@ async def save_upload(file: UploadFile, folder: str, user_id: str) -> dict:
     await db.files.insert_one({**ref})
     return {k: v for k, v in ref.items() if k != "_id"}
 
-app = FastAPI(title="Agrocorp Lite")
+def _sanitize_nonfinite(o):
+    """Recursively replace NaN/Infinity floats with None so JSON serialization
+    (Starlette uses allow_nan=False) never fails on bad spreadsheet data."""
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _sanitize_nonfinite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_sanitize_nonfinite(v) for v in o]
+    return o
+
+
+class SafeJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return super().render(_sanitize_nonfinite(content))
+
+
+app = FastAPI(title="Agrocorp Lite", default_response_class=SafeJSONResponse)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
@@ -609,14 +627,16 @@ def _num(v) -> float:
     if v is None or v == "":
         return 0.0
     if isinstance(v, (int, float)):
-        return float(v)
+        f = float(v)
+        return f if math.isfinite(f) else 0.0
     s = str(v).strip()
     for tok in (",", "\u20b9", "Rs.", "Rs", "rs", "INR", "%", " "):
         s = s.replace(tok, "")
     if s in ("", "-", "--", "NA", "N/A", "nil", "Nil"):
         return 0.0
     try:
-        return float(s)
+        f = float(s)
+        return f if math.isfinite(f) else 0.0
     except (TypeError, ValueError):
         return 0.0
 
