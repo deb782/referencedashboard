@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only E2E verification of the SellDialog payment-schedule validation fix (Units page). All 4 requested scenarios pass on the deployed preview URL. (1) Single valid schedule row → sale succeeds (toast 'Sale recorded — accounts & admin notified'), plot flips to Sold. (2) Blank-row tolerance: row 0 filled + a second row added via s-add-row left completely blank → sale STILL succeeds (blank row filtered out client-side by SellDialog.save()). (3a) Amount without due date and possession untick → toast 'Each payment row needs an amount and a due date (or tick On Offer of Possession)' and submit blocked. (3b) Clear amount so no rows are filled → toast 'Add at least one payment row with an amount and a due date' and submit blocked. (4) Clear Sale date → toast 'Sale date is required' and submit blocked. Toast assertions were done against sonner toast DOM ([data-sonner-toast]) — the earlier false-positive from page.content() (JS bundle contains the copy) was corrected on the second run. Post-test cleanup fully done: 3 test-sold units (plots 32/38/40) reverted to Available; 3 booking payments deleted; 3 sale_recorded notifications deleted. Final state: CVF sold=0, payments=0, cancellations=0, related notifications=0. unit.data untouched, rates untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SellDialog.save() correctly filters blank rows: schedule.filter(r => Number(r.amount)>0 || r.due_date || r.on_possession || (r.name||'').trim()) — matches the fix described. Order of validations is sensible (sale_date → >=1 valid row → per-row amount+date/possession).",
+    "Toast copy is now unambiguous and matches the request text verbatim, including the 'On Offer of Possession' hint.",
+    "Minor UX suggestion (non-blocking): 'Add instalment' button appends a fresh empty row unconditionally; consider disabling it while the last row is blank to avoid users creating stray rows in the first place (defensive UX on top of the tolerant validator)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (4/4 scenarios)"},
+  "test_credentials": "Admin phone 9513242807 / Repro@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "During tests, 3 CVF plots (32, 38, 40) were temporarily sold to TEST_ buyers to exercise the flow. All were reverted; booking payments and sale_recorded notifications deleted. Final DB clean: CVF sold=0, payments=0, cancellations=0, sale/payment/cancel notifications=0.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Sell-form payment-schedule validation fix is verified E2E via UI. When asserting sonner toast text, prefer selector [data-sonner-toast] over page.content() (validator copy is present in the JS bundle and yields false positives). data-testids used: s-buyer, s-date, s-price, s-booking, s-add-row, s-name-0/1, s-row-date-0/1, s-row-amt-0/1, s-possession-0/1, s-submit. CVF project id = proj_01d7e89ba838.",
+  "rca of the issue": "N/A — feature works as specified."
+}
