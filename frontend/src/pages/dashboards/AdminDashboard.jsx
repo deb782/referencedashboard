@@ -12,23 +12,10 @@ export default function AdminDashboard({ stats, user }) {
     <div data-testid="dashboard-page">
       <PageHeader overline="Command Center"
         title={`Good to see you, ${user?.name?.split(" ")[0]}`}
-        subtitle="Consolidated revenue across the company, with a live pivot for each project below.">
+        subtitle="A live sold-value pivot for each project.">
         <Link to="/units" className="btn-secondary" data-testid="dash-units"><Home className="w-4 h-4" /> Units</Link>
         <Link to="/projects" className="btn-primary" data-testid="dash-projects"><Building2 className="w-4 h-4" /> Projects</Link>
       </PageHeader>
-
-      {/* Consolidated strip */}
-      <div className="card p-8 relative overflow-hidden ag-rise mb-6">
-        <div className="absolute -right-8 -top-8 opacity-[0.04]"><Layers className="w-48 h-48" /></div>
-        <div className="overline">Consolidated · All Projects</div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-6 mt-4">
-          <Big label="Total Booked" value={inr(con.booked_value)} tone="text-brand" />
-          <Big label="Received" value={inr(con.received_total)} tone="text-ok" />
-          <Big label="Pending" value={inr(con.pending_total)} tone="text-warn" />
-          <Big label="Plots Sold" value={`${con.sold ?? 0}/${con.total_units ?? 0}`} tone="text-ink" />
-          <Big label="Available" value={con.available ?? 0} tone="text-ink" />
-        </div>
-      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
         <Kpi label="Projects" value={con.projects ?? 0} icon={Building2} tone="ink" className="ag-rise" mono={false} />
@@ -115,13 +102,12 @@ function ProjectPivot({ p, idx }) {
         <div className="max-h-96 overflow-y-auto">
           <table className="w-full">
             <thead className="sticky top-0 bg-white"><tr className="border-b border-agborder">
-              <th className="th">Component</th><th className="th text-right">All plots</th><th className="th text-right">Sold (booked)</th>
+              <th className="th">Component</th><th className="th text-right">Sold (booked)</th>
             </tr></thead>
             <tbody>
               {pivots.map(pv => (
                 <tr key={pv.key} className="row">
                   <td className="td font-semibold">{pv.label}{pv.tag === "reference" && <span className="text-[10px] text-ink2 ml-1">(ref)</span>}{pv.tag === "total" && <span className="text-[10px] text-brand ml-1 font-bold">TOTAL</span>}</td>
-                  <td className="td text-right font-mono-num text-ink2">{inr(pv.sum_all)}</td>
                   <td className="td text-right font-mono-num font-semibold">{inr(pv.sum_sold)}</td>
                 </tr>
               ))}

@@ -1,0 +1,40 @@
+{
+  "summary": "Verified all 5 admin UI/logic edits (Phase-4) end-to-end. Backend pytest /app/backend/tests/test_phase4_edits.py: 6/6 PASSED — (1) GET /projects exposes rate_per_sqft as number for all projects; (2) PATCH /projects/{id}/rate persists new rate on VV, verified via re-GET, unknown project → 404; (3) GET /dashboard returns consolidated{projects}, team_members, procurement_pending, procurement_paid for the KPI row, and by_project[] with total_units=256 (VV) / 47 (CVF) plus sold + pivots; (4) POST /units/{unit_id}/sell succeeds with buyer_name='' and buyer_contact='' as long as schedule is non-empty (2 payment rows created, unit marked sold, buyer_name persisted as ''); (5) Empty schedule → 400 as expected. Frontend UI verified via Playwright as admin 9513242807/Repro@123: dashboard shows KPI row (Projects/Team Members/Procurement Queue/Procurement Paid) and NO 'Consolidated · All Projects' card; each ProjectPivot table has exactly two columns 'Component' and 'Sold (booked)' — no 'All plots' column. Projects page renders two project cards. Changed VV rate 3200 → 6789, clicked rate-save-{id}, saw 'Rate updated' toast, reloaded page, rate persisted as 6789, then restored to 3200. Each card shows Total plots / Sold stats and TeamRow chips: Admin='Debabrata', Process Admin='—' (no post_sales user exists — correct behaviour). Units page renders a 2-col layout with both projects; VV plot 1 shows 2 PLC chips (Hill View PLC ₹1,19,929.00, CORNER PLC ₹1,19,929.00); VV plot 9 shows '—' (all PLCs zero); CVF section has zero PLC chips across all 47 rows and every row shows '—' (project has no PLC columns). Sell dialog opened via sell-{plot}: heading 'Sell plot 32' + subtitle, section header 'Payment breakdown', add button 'Add breakdown', column header 'Breakdown item', footer 'Breakdown total'. Buyer name and Buyer contact labels have NO asterisk (only Sale date is required). Submitted with empty buyer name + one row (₹50,000, 2026-02-15) → toast 'Sale recorded — accounts & admin notified', unit flipped to Sold. Cleanup: reverted unit 32 back to available, deleted the payment record and the sale_recorded notification, restored VV rate to 3200. Final DB state: units.sold=0, payments=0, notifications(sale_recorded)=0 — pre-launch clean.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "SellDialog — Sale date & row Due date", "issues": ["Uses browser-native HTML5 <input type='date'> which renders inconsistently across Chromium/Firefox/Safari and shows an OS-specific popup. Consider a shadcn/react-day-picker Calendar for a consistent look and to match the app's design system."]},
+      {"screen": "SellDialog — On Offer of Possession checkbox", "issues": ["When 'On Offer of Possession' is toggled ON, the date input is replaced with a static label but the checkbox stays visible directly below — visually the toggle-off affordance is small; consider swapping to a segmented control (Date | On possession)."]},
+      {"screen": "Projects — Process Admin row", "issues": ["Both cards show 'Process Admin —' because no post_sales user exists yet. This is correct behaviour but the empty-state '—' pill is easy to miss; consider a hint like 'Invite a Process Admin from Team' to guide the admin."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase4_edits.py",
+    "/app/test_reports/pytest/phase4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1665 lines — still overdue for modular split (projects/units/sales/procurement/accounts/files/dashboards).",
+    "PATCH /projects/{id}/rate accepts any float including negatives (e.g. -1000) — no validation. Add `ge=0` on RateUpdate.rate_per_sqft or reject negative values.",
+    "SellUnitRequest.buyer_name defaults to '' (Optional[str]='') but sell_unit stores it verbatim; downstream code (search, sales UI sublabel) already handles empty strings, but the sale_recorded notification message uses `f'{buyer_name} · '` only when truthy — good, but consider persisting `None` instead of '' to distinguish 'walk-in / unknown' from 'not yet captured'.",
+    "In Projects.jsx ProjectCard, when p.rate_per_sqft is 0 the Save button is enabled the moment the user types then clears the field (rate='' → Number('')=0 → dirty=false relative to 0, ok). But typing 0 into a project that already has rate 0 still allows Save (dirty is false so button disables — correct). Small nit: no min=0 on the input; users can type -50 and click Save (server accepts it — see previous point).",
+    "Units.jsx ProjectInventory computes plcCols with regex /plc/i on column labels. This is brittle — a future column labelled e.g. 'Special Placement' could accidentally match. Consider a dedicated tag like 'plc' or a boolean flag on Project.columns entries.",
+    "SellDialog's schedule validation `!r.amount || (!r.due_date && !r.on_possession)` allows amount=0 to slip through as truthy-fail (0 is falsy → returns error 'Each row needs...'). Fine, but the error text says 'needs an amount and a due date' when it's really 'needs a POSITIVE amount'. Consider checking Number(r.amount) > 0 explicitly.",
+    "GET /dashboard `by_project[].sold` is computed but the client also filters units.status==='sold' on Units.jsx for the per-project header — two independent implementations of 'sold count' that can drift. Prefer using the dashboard's count in Units page too.",
+    "AdminDashboard ProjectPivot renders `pv.sum_sold` right-aligned as inr(); since 0 sold across the app, all rows print '₹0.00' — visually noisy. Consider dimming zeroes or hiding rows where `sum_sold==0 && tag !== 'total'`.",
+    "The stale sale_recorded notification found in DB during cleanup ('Sale recorded · Plot 1 · ₹5,000,000') was NOT from this iteration — appears to be leftover from a prior test run whose cleanup regex missed. I purged it. Recommend future tests store the notification_id on creation and delete by id, not by message regex, to make cleanup deterministic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase4_edits.py",
+    "/app/test_reports/iteration_9.json"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (all 5 edits verified)"},
+  "test_credentials": "Admin phone 9513242807 / password Repro@123 (from /app/memory/test_credentials.md) — verified working.",
+  "seed_data_creation": "Backend test created 1 sale + 2 payments on first available CVF unit and self-cleaned in the test body (unit reverted, payments deleted, notification deleted). Frontend test created 1 sale on CVF plot 32, cleaned via mongosh (unit reverted, payments/notifications purged). VV rate temporarily changed 3200→6789→restored 3200. Also removed a pre-existing stale sale_recorded notification (Plot 1) left by a prior iteration. Final DB: units.sold=0, payments=0, notifications(sale_recorded)=0, VV rate=3200 — pre-launch state preserved.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 5 admin UI/logic edits are stable. Regression suites live: test_phase1.py (9), test_phase2.py (4), test_phase3.py (16), test_phase4_edits.py (6) = 35 tests. To run tests, source both /app/frontend/.env and /app/backend/.env for REACT_APP_BACKEND_URL/MONGO_URL/DB_NAME. If future iterations add a post_sales user, the Projects page 'Process Admin' TeamRow will render pills automatically (already integration-verified via the admins row). Rate persistence is via projects.rate_per_sqft column; PATCH endpoint returns {ok, rate_per_sqft} but does not currently validate for negatives.",
+  "rca of the issue": "N/A — no bugs found. All 5 admin edits pass end-to-end."
+}

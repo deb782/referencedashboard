@@ -23,8 +23,8 @@ export default function Units() {
   return (
     <div data-testid="units-page">
       <PageHeader overline="Plot Inventory" title="Units"
-        subtitle="Each project keeps its own column structure from the uploaded sheet." />
-      <div className="space-y-8">
+        subtitle="Each plot shows its size and the location premiums (PLCs) that apply." />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
         {projects.map((p) => <ProjectInventory key={p.project_id} project={p} user={user} />)}
         {projects.length === 0 && <EmptyState icon={Home} title="No projects" hint="Create a project first." />}
       </div>
@@ -48,9 +48,13 @@ function ProjectInventory({ project, user }) {
   };
   useEffect(() => { load(); }, [project.project_id]);
 
-  const visibleCols = cols.filter(c => c.tag !== "plot_id" && c.tag !== "ignore");
+  const extentCol = cols.find(c => c.tag === "area");
+  const plcCols = cols.filter(c => c.tag === "charge" && /plc/i.test(c.label));
   const available = units.filter(u => u.status === "available").length;
   const sold = units.filter(u => u.status === "sold").length;
+
+  const extentOf = (u) => (u.area && u.area > 0) ? u.area : (extentCol ? Number(u.data?.[extentCol.key] || 0) : 0);
+  const applicablePlcs = (u) => plcCols.filter(c => Number(u.data?.[c.key] || 0) > 0);
 
   return (
     <section className="card overflow-hidden" data-testid={`project-inv-${project.project_id}`}>
@@ -77,28 +81,36 @@ function ProjectInventory({ project, user }) {
         <EmptyState icon={Home} title="No plots yet"
           hint={can(user, "admin") ? "Upload the inventory sheet or add a plot manually." : "Waiting for admin to upload inventory."} />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-max">
-            <thead><tr className="border-b border-agborder bg-surfacealt/30">
-              <th className="th sticky left-0 bg-surfacealt/60">Plot</th>
-              {visibleCols.map(c => <th key={c.key} className="th text-right whitespace-nowrap">{c.label}</th>)}
+        <div className="max-h-[70vh] overflow-y-auto">
+          <table className="w-full">
+            <thead className="sticky top-0 z-10"><tr className="border-b border-agborder bg-surfacealt/60">
+              <th className="th">Plot</th>
+              <th className="th text-right whitespace-nowrap">Extent (sq.ft)</th>
+              <th className="th">Applicable PLCs</th>
               <th className="th">Status</th>
-              <th className="th">Buyer</th>
               {can(user, "admin", "post_sales") && <th className="th text-right">Action</th>}
             </tr></thead>
             <tbody>
-              {units.map(u => (
-                <tr key={u.unit_id} className="row" data-testid={`unit-row-${u.plot_number}`}>
-                  <td className="td font-mono-num font-bold sticky left-0 bg-white">{u.plot_number}</td>
-                  {visibleCols.map(c => (
-                    <td key={c.key} className={`td whitespace-nowrap ${c.tag === "reference" ? "text-ink2 italic" : "text-right font-mono-num"}`}>
-                      {c.tag === "reference" && typeof u.data?.[c.key] === "string"
-                        ? (u.data?.[c.key] || "—")
-                        : num2(u.data?.[c.key])}
-                    </td>
-                  ))}
+              {units.map(u => {
+                const plcs = applicablePlcs(u);
+                return (
+                <tr key={u.unit_id} className="row align-top" data-testid={`unit-row-${u.plot_number}`}>
+                  <td className="td font-mono-num font-bold">{u.plot_number}</td>
+                  <td className="td text-right font-mono-num whitespace-nowrap">{num2(extentOf(u))}</td>
+                  <td className="td">
+                    {plcs.length === 0 ? <span className="text-ink2 text-xs">—</span> : (
+                      <div className="flex flex-wrap gap-1.5 max-w-[16rem]">
+                        {plcs.map(c => (
+                          <span key={c.key} className="pill text-[11px]" title={c.label}
+                            style={{ color: "#5a6b10", backgroundColor: "#5a6b1010", borderColor: "#5a6b1022" }}
+                            data-testid={`plc-${u.plot_number}-${c.key}`}>
+                            {c.label}: {inr(Number(u.data?.[c.key] || 0))}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td className="td"><StatusPill status={u.status} /></td>
-                  <td className="td text-ink2 text-xs whitespace-nowrap">{u.buyer_name || "—"}</td>
                   {can(user, "admin", "post_sales") && (
                     <td className="td text-right whitespace-nowrap">
                       {can(user, "admin") && (
@@ -114,7 +126,7 @@ function ProjectInventory({ project, user }) {
                     </td>
                   )}
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>
@@ -319,13 +331,13 @@ function SellDialog({ unit, onClose, onSaved }) {
 
       <div className="mt-6">
         <div className="flex justify-between items-center mb-2">
-          <div className="overline text-ink">Payment schedule (manual)</div>
-          <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="s-add-row"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
+          <div className="overline text-ink">Payment breakdown</div>
+          <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="s-add-row"><Plus className="w-3.5 h-3.5" /> Add breakdown</button>
         </div>
         <div className="border border-agborder rounded-md overflow-hidden">
           <table className="w-full">
             <thead><tr className="bg-surfacealt/60 border-b border-agborder">
-              <th className="th py-2">Instalment name</th><th className="th py-2">Due date</th><th className="th py-2 text-right">Amount</th><th></th>
+              <th className="th py-2">Breakdown item</th><th className="th py-2">Due date</th><th className="th py-2 text-right">Amount</th><th></th>
             </tr></thead>
             <tbody>
               {schedule.map((r, i) => (
@@ -347,7 +359,7 @@ function SellDialog({ unit, onClose, onSaved }) {
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="bg-surfacealt/40"><td colSpan={2} className="px-3 py-2.5 text-sm font-semibold text-ink">Schedule total</td><td className="px-3 py-2.5 text-right font-mono-num font-bold">{inr(scheduleTotal)}</td><td></td></tr></tfoot>
+            <tfoot><tr className="bg-surfacealt/40"><td colSpan={2} className="px-3 py-2.5 text-sm font-semibold text-ink">Breakdown total</td><td className="px-3 py-2.5 text-right font-mono-num font-bold">{inr(scheduleTotal)}</td><td></td></tr></tfoot>
           </table>
         </div>
       </div>

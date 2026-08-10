@@ -189,6 +189,7 @@ class Project(BaseModel):
     kind: str = ""                  # e.g. "Agricultural Plots" / "Residential"
     site_manager_id: Optional[str] = None
     columns: list = []              # [{key,label,tag}] tag: plot_id|area|charge|total|reference|ignore
+    rate_per_sqft: float = 0        # admin-set sale rate per sq.ft for this project
     created_at: str = Field(default_factory=now)
 
 
@@ -552,6 +553,21 @@ async def update_project(project_id: str, payload: ProjectCreate,
             {"user_id": payload.site_manager_id, "role": "site_manager"},
             {"$set": {"project_id": project_id}})
     return {"ok": True}
+
+
+class RateUpdate(BaseModel):
+    rate_per_sqft: float = Field(default=0, ge=0)
+
+
+@api.patch("/projects/{project_id}/rate")
+async def update_project_rate(project_id: str, payload: RateUpdate,
+                               user: User = Depends(require_roles("admin"))):
+    r = await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {"rate_per_sqft": round(payload.rate_per_sqft, 2)}})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Project not found")
+    return {"ok": True, "rate_per_sqft": round(payload.rate_per_sqft, 2)}
 
 
 @api.delete("/projects/{project_id}")

@@ -164,3 +164,14 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Fix (_read_tabular): open read_only=True, stream rows, stop after 25 consecutive blank rows, trim trailing all-empty (phantom) columns. Result: 0.03s read, 16 cols, 259 rows.
 - Verified via curl with the ACTUAL file against preview: /units/preview = 16 cols/256 rows in 0.25s; /units/commit = 256 updated, 0 errors in 0.25s. VV project (proj_53fb360c1f0a) now has 16-col dynamic schema + 256 units populated.
 - ACTION FOR USER: REDEPLOY again (this fix wasn't in the last deploy), then upload VV on live app.
+
+---
+## PHASE 4 — Admin UI/logic edits (2026-08-10)
+- Sell form: buyer_name/buyer_contact now OPTIONAL (SellUnitRequest defaults ''); notification skips name when blank.
+- Admin Dashboard: removed 'Consolidated · All Projects' card (kept KPI stat row); ProjectPivot table now shows only 'Sold (booked)' (removed 'All plots' column).
+- Project model: +rate_per_sqft (float, ge=0). New PATCH /projects/{id}/rate (RateUpdate). GET /projects returns it.
+- Projects.jsx: rebuilt into two project CARDS — editable 'Sale rate (per sq.ft)' with Save, inventory glance (total/sold from /dashboard by_project), 'Catering to this inventory' listing Admin + Process Admin (post_sales) users.
+- Units.jsx: 2-column layout (grid xl:grid-cols-2), COMPACT table = Plot no + Extent(sq.ft) + Applicable PLCs (PLC = charge col whose label matches /plc/i, shown as chips only when value>0; '—' otherwise). VV has PLCs; CVF has none (shows '—').
+- Sell form renamed: 'Payment breakdown' heading, 'Add breakdown' button, 'Breakdown item' col, 'Breakdown total' footer (manual empty rows kept).
+- Verified: testing agent iteration_9.json — 6/6 backend + all 5 frontend edits, 0 bugs. Negative rate rejected (422). DB kept pre-launch clean (0 sold/0 payments). Rates set: CVF 2500, VV 3200.
+- ACTION FOR USER: Redeploy to push these to production.
