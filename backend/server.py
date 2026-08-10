@@ -264,6 +264,27 @@ class SellUnitRequest(BaseModel):
     schedule: List[ScheduleRow]
 
 
+class CancelBookingRequest(BaseModel):
+    cancel_date: str
+    amount_refunded: float = Field(default=0, ge=0)
+
+
+class Cancellation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    cancellation_id: str = Field(default_factory=lambda: new_id("cancel"))
+    unit_id: str
+    project_id: str
+    plot_number: str
+    buyer_name: Optional[str] = None
+    amount_paid: float = 0
+    amount_refunded: float = 0
+    balance_retained: float = 0
+    cancel_date: str
+    cancelled_by: Optional[str] = None
+    cancelled_by_name: Optional[str] = None
+    cancelled_at: str = Field(default_factory=now)
+
+
 class Payment(BaseModel):
     model_config = ConfigDict(extra="ignore")
     payment_id: str = Field(default_factory=lambda: new_id("pay"))
@@ -995,6 +1016,48 @@ async def sell_unit(unit_id: str, payload: SellUnitRequest,
     return {"ok": True, "payments": docs}
 
 
+@api.post("/units/{unit_id}/cancel")
+async def cancel_booking(unit_id: str, payload: CancelBookingRequest,
+                         user: User = Depends(require_roles("admin"))):
+    unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
+    if not unit:
+        raise HTTPException(404, "Unit not found")
+    if unit.get("status") != "sold":
+        raise HTTPException(400, "Only a booked plot can be cancelled")
+    amount_paid = round(await _sum_field(db.payments, {"unit_id": unit_id}, "paid_amount"), 2)
+    refunded = round(payload.amount_refunded, 2)
+    balance = round(amount_paid - refunded, 2)
+    rec = Cancellation(
+        unit_id=unit_id, project_id=unit["project_id"], plot_number=unit["plot_number"],
+        buyer_name=unit.get("buyer_name"), amount_paid=amount_paid,
+        amount_refunded=refunded, balance_retained=balance,
+        cancel_date=payload.cancel_date, cancelled_by=user.user_id,
+        cancelled_by_name=user.name)
+    await db.cancellations.insert_one(rec.model_dump())
+    # Remove this booking's payment schedule and free the plot
+    await db.payments.delete_many({"unit_id": unit_id})
+    await db.units.update_one({"unit_id": unit_id}, {
+        "$set": {"status": "available"},
+        "$unset": {"buyer_name": "", "buyer_contact": "", "sale_date": "",
+                   "final_price": "", "booking_amount": "", "sold_by": "",
+                   "sold_at": ""}})
+    msg = (f"Booking cancelled · Plot {unit['plot_number']} · paid "
+           f"\u20B9{amount_paid:,.0f} · refunded \u20B9{refunded:,.0f} "
+           f"· balance \u20B9{balance:,.0f}")
+    await notify_role("admin", "booking_cancelled", msg, "/sales")
+    await notify_role("accounts", "booking_cancelled", msg, "/sales")
+    return {"ok": True, "cancellation": rec.model_dump()}
+
+
+@api.get("/cancellations")
+async def list_cancellations(project_id: Optional[str] = None,
+                             user: User = Depends(require_roles("admin", "accounts"))):
+    q: dict = {}
+    if project_id:
+        q["project_id"] = project_id
+    return await db.cancellations.find(q, {"_id": 0}).sort("cancelled_at", -1).to_list(1000)
+
+
 # ----- payments (accounts) ------------------------------------------------
 @api.get("/payments")
 async def list_payments(project_id: Optional[str] = None,
@@ -1411,6 +1474,8 @@ async def _projects_overview():
         sold = [u for u in units if u.get("status") == "sold"]
         booked = round(sum((u.get("final_price") or u.get("total") or 0) for u in sold), 2)
         received = round(await _sum_field(db.payments, {"project_id": pid}, "paid_amount"), 2)
+        retained = round(await _sum_field(db.cancellations, {"project_id": pid}, "balance_retained"), 2)
+        received = round(received + retained, 2)
         pending = round(max(0.0, booked - received), 2)
         pivots = []
         for c in (p.get("columns") or []):

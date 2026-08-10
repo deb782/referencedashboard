@@ -198,3 +198,14 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Permissions: post_sales can now EDIT plot details (edit-plot button + PATCH /units/{id} role opened to admin+post_sales). Add-plot stays admin-only.
 - Verified via screenshots (dashboard labels, book form) + curl (sale/receipt/dashboard math, edit endpoint 200). NOTE: an accidental test PATCH with empty data wiped CVF plot 32 then re-imported CVF (47 updated) to restore; DB pre-launch clean (0 sold/0 payments), rates CVF 2500 / VV 3200.
 - ACTION FOR USER: Redeploy to push to production.
+
+---
+## PHASE 6 — Admin cancel booking + cancellations history (2026-08-10)
+- ADMIN-ONLY cancel booking. Models: CancelBookingRequest{cancel_date, amount_refunded>=0}, Cancellation{unit_id,project_id,plot_number,buyer_name,amount_paid,amount_refunded,balance_retained,cancel_date,cancelled_by,cancelled_by_name,cancelled_at}. Collection: db.cancellations.
+- POST /units/{id}/cancel (admin): amount_paid = sum(payments.paid_amount for unit); balance_retained = paid - refunded; inserts Cancellation; DELETES the unit's payment schedule; reverts unit to available (unset buyer/sale fields); notifies admin+accounts.
+- GET /cancellations (admin+accounts).
+- Dashboard _projects_overview: received now = sum(payments.paid_amount) + sum(cancellations.balance_retained); Total Received folds in retained balance. Total Sold drops the cancelled plot (no longer sold). pending = max(0, booked - received).
+- Units.jsx: sold plots show admin-only Cancel (Trash2) button → CancelDialog (fetches unit payments to show 'Amount paid so far', live Balance retained = paid - refunded, guards refund<=paid). Also edit-plot now admin+post_sales (Phase 5).
+- Sales.jsx: new 'Cancellations' head tab (admin+accounts) → CancellationsView with summary (count / Total Refunded / Balance Retained) + table (Date, Plot, Buyer, Paid, Refunded, Balance retained, By).
+- Verified: curl end-to-end + testing agent iteration_10.json (frontend 100%, 0 bugs). Example confirmed: paid 15L, refund 10L, retained 5L in CVF Total Received. DB left clean (sold=0, payments=0, cancellations=0).
+- ACTION FOR USER: Redeploy to push to production.

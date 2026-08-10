@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Home, Building2, Wallet, ChevronRight, Receipt } from "lucide-react";
+import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { PageHeader, StatusPill, EmptyState, SectionCard, Modal, inr } from "@/components/ui";
@@ -9,12 +9,16 @@ export default function Sales() {
   const { user } = useAuth();
   const [head, setHead] = useState("plots");
   const [ov, setOv] = useState(null);
+  const [cancels, setCancels] = useState([]);
   const [drill, setDrill] = useState(null);   // {unit_id, plot_number, buyer_name}
   const canPay = can(user, "accounts", "admin");
 
   const load = async () => {
     try { const r = await api.get("/accounts/overview"); setOv(r.data); }
     catch (e) { toast.error(apiError(e)); }
+    if (canPay) {
+      try { const c = await api.get("/cancellations"); setCancels(c.data); } catch (e) { /* ignore */ }
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -32,6 +36,16 @@ export default function Sales() {
           label="Plots" pending={plots.totals?.pending} testid="head-plots" />
         <HeadTab active={head === "site"} onClick={() => setHead("site")} icon={Building2}
           label="Site" pending={site.pending_total} testid="head-site" />
+        {canPay && (
+          <button onClick={() => setHead("cancellations")} data-testid="head-cancellations"
+            className={`flex items-center gap-3 px-5 py-3 rounded-lg border transition-colors duration-300 ${head === "cancellations" ? "bg-brand text-white border-brand" : "bg-white border-agborder text-ink2 hover:bg-surfacealt"}`}>
+            <XCircle className="w-5 h-5" />
+            <div className="text-left">
+              <div className="font-display font-bold leading-none">Cancellations</div>
+              <div className={`text-xs mt-1 font-mono-num ${head === "cancellations" ? "text-white/80" : "text-ink2"}`}>{cancels.length} record(s)</div>
+            </div>
+          </button>
+        )}
       </div>
 
       {head === "plots" ? (
@@ -69,7 +83,7 @@ export default function Sales() {
           ))}
           {(plots.projects || []).length === 0 && <EmptyState icon={Home} title="No plot dues yet" hint="Payments appear here once plots are sold." />}
         </div>
-      ) : (
+      ) : head === "site" ? (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-6">
             <Summary label="Site — Pending" value={inr(site.pending_total)} tone="text-warn" />
@@ -101,6 +115,8 @@ export default function Sales() {
             <div className="px-5 py-3 text-xs text-ink2 border-t border-agborder">Record PO payments from the Procurement page. Milestone payment structure comes in the next phase.</div>
           </SectionCard>
         </div>
+      ) : (
+        <CancellationsView rows={cancels} />
       )}
 
       {drill && <PlotDrilldown plot={drill} canPay={canPay} onClose={() => setDrill(null)} onChanged={load} />}
@@ -126,6 +142,44 @@ function Summary({ label, value, tone }) {
     <div className="card p-5 ag-rise">
       <div className="overline">{label}</div>
       <div className={`font-display font-extrabold text-2xl mt-2 font-mono-num ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+function CancellationsView({ rows }) {
+  const retained = rows.reduce((s, r) => s + Number(r.balance_retained || 0), 0);
+  const refunded = rows.reduce((s, r) => s + Number(r.amount_refunded || 0), 0);
+  return (
+    <div className="space-y-6" data-testid="cancellations-view">
+      <div className="grid grid-cols-3 gap-6">
+        <Summary label="Cancellations" value={rows.length} tone="text-ink" />
+        <Summary label="Total Refunded" value={inr(refunded)} tone="text-warn" />
+        <Summary label="Balance Retained" value={inr(retained)} tone="text-brand" />
+      </div>
+      <SectionCard title="Cancelled bookings" className="ag-rise">
+        {rows.length === 0 ? <EmptyState icon={XCircle} title="No cancellations" hint="Cancelled bookings will appear here with paid, refunded and retained amounts." /> : (
+          <table className="w-full">
+            <thead><tr className="border-b border-agborder bg-surfacealt/40">
+              <th className="th">Date</th><th className="th">Plot</th><th className="th">Buyer</th>
+              <th className="th text-right">Paid</th><th className="th text-right">Refunded</th>
+              <th className="th text-right">Balance retained</th><th className="th">By</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.cancellation_id} className="row" data-testid={`cancel-row-${r.plot_number}`}>
+                  <td className="td font-mono-num text-ink2 whitespace-nowrap">{r.cancel_date}</td>
+                  <td className="td font-mono-num font-bold">{r.plot_number}</td>
+                  <td className="td text-ink2">{r.buyer_name || "—"}</td>
+                  <td className="td text-right font-mono-num text-ok">{inr(r.amount_paid)}</td>
+                  <td className="td text-right font-mono-num text-warn">{inr(r.amount_refunded)}</td>
+                  <td className="td text-right font-mono-num font-semibold text-brand">{inr(r.balance_retained)}</td>
+                  <td className="td text-ink2 text-xs">{r.cancelled_by_name || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </SectionCard>
     </div>
   );
 }

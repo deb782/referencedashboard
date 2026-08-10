@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Upload, HandCoins, Plus, Home, Pencil, X, Check } from "lucide-react";
+import { Upload, HandCoins, Plus, Home, Pencil, X, Check, Trash2 } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { PageHeader, StatusPill, EmptyState, Modal, inr, num2 } from "@/components/ui";
@@ -38,6 +38,7 @@ function ProjectInventory({ project, user }) {
   const [wizard, setWizard] = useState(false);
   const [plotDlg, setPlotDlg] = useState(null);   // {mode:'add'|'edit', unit}
   const [sellFor, setSellFor] = useState(null);
+  const [cancelFor, setCancelFor] = useState(null);
 
   const load = async () => {
     const r = await api.get("/units", { params: { project_id: project.project_id } });
@@ -123,6 +124,11 @@ function ProjectInventory({ project, user }) {
                           <HandCoins className="w-3.5 h-3.5" /> Sell
                         </button>
                       )}
+                      {u.status === "sold" && can(user, "admin") && (
+                        <button onClick={() => setCancelFor(u)} className="text-ink2 hover:text-bad ml-1" title="Cancel booking" data-testid={`cancel-${u.plot_number}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -136,6 +142,7 @@ function ProjectInventory({ project, user }) {
       {plotDlg && <PlotDialog project={{ ...project, columns: cols }} mode={plotDlg.mode} unit={plotDlg.unit}
                     onClose={() => setPlotDlg(null)} onSaved={() => { setPlotDlg(null); load(); }} />}
       {sellFor && <SellDialog unit={sellFor} columns={cols} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
+      {cancelFor && <CancelDialog unit={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
     </section>
   );
 }
@@ -398,5 +405,70 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+
+function CancelDialog({ unit, onClose, onSaved }) {
+  const [cancelDate, setCancelDate] = useState(new Date().toISOString().slice(0, 10));
+  const [refunded, setRefunded] = useState(0);
+  const [paid, setPaid] = useState(null);   // total received against this plot
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get("/payments", { params: { unit_id: unit.unit_id } })
+      .then(r => setPaid(r.data.reduce((s, p) => s + Number(p.paid_amount || 0), 0)))
+      .catch(() => setPaid(0));
+  }, [unit.unit_id]);
+
+  const balance = paid == null ? null : Math.round((paid - Number(refunded || 0)) * 100) / 100;
+
+  const save = async () => {
+    if (!cancelDate) return toast.error("Date of cancellation is required");
+    if (Number(refunded) < 0) return toast.error("Refund cannot be negative");
+    if (paid != null && Number(refunded) > paid) return toast.error(`Refund can't exceed amount paid (${inr(paid)})`);
+    setBusy(true);
+    try {
+      await api.post(`/units/${unit.unit_id}/cancel`, {
+        cancel_date: cancelDate, amount_refunded: Number(refunded || 0),
+      });
+      toast.success("Booking cancelled — plot is available again");
+      onSaved();
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal size="md" title={`Cancel booking · Plot ${unit.plot_number}`}
+      subtitle={unit.buyer_name ? `Buyer: ${unit.buyer_name}` : "This will free the plot and remove its payment schedule."}
+      onClose={onClose}
+      footer={<>
+        <button onClick={onClose} className="btn-secondary">Keep booking</button>
+        <button onClick={save} disabled={busy} className="btn-primary" style={{ backgroundColor: "#b23b3b" }} data-testid="cancel-submit">{busy ? "Cancelling…" : "Cancel booking"}</button>
+      </>}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className="label">Date of cancellation *</label>
+            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} className="input font-mono-num" data-testid="cancel-date" /></div>
+          <div><label className="label">Amount refunded</label>
+            <input type="number" min="0" value={refunded} onChange={(e) => setRefunded(e.target.value)} className="input font-mono-num" data-testid="cancel-refund" placeholder="0" /></div>
+        </div>
+        <div className="border border-agborder rounded-md divide-y divide-agborder" data-testid="cancel-summary">
+          <Row label="Amount paid so far" value={paid == null ? "…" : inr(paid)} tone="text-ok" />
+          <Row label="Amount refunded" value={inr(Number(refunded || 0))} tone="text-ink2" />
+          <Row label="Balance retained" value={balance == null ? "…" : inr(balance)} tone="text-brand" bold />
+        </div>
+        <div className="text-[11px] text-ink2">The retained balance is added to this project's Total Received on the dashboard.</div>
+      </div>
+    </Modal>
+  );
+}
+
+function Row({ label, value, tone, bold }) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5">
+      <span className="text-sm text-ink">{label}</span>
+      <span className={`font-mono-num ${bold ? "font-bold" : ""} ${tone}`}>{value}</span>
+    </div>
   );
 }
