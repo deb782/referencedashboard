@@ -1472,7 +1472,7 @@ async def _projects_overview():
             {"project_id": pid},
             {"_id": 0, "status": 1, "total": 1, "data": 1, "final_price": 1}).to_list(5000)
         sold = [u for u in units if u.get("status") == "sold"]
-        booked = round(sum((u.get("final_price") or u.get("total") or 0) for u in sold), 2)
+        booked = round(sum((u.get("total") or u.get("final_price") or 0) for u in sold), 2)
         received = round(await _sum_field(db.payments, {"project_id": pid}, "paid_amount"), 2)
         retained = round(await _sum_field(db.cancellations, {"project_id": pid}, "balance_retained"), 2)
         received = round(received + retained, 2)

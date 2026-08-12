@@ -209,3 +209,11 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Sales.jsx: new 'Cancellations' head tab (admin+accounts) → CancellationsView with summary (count / Total Refunded / Balance Retained) + table (Date, Plot, Buyer, Paid, Refunded, Balance retained, By).
 - Verified: curl end-to-end + testing agent iteration_10.json (frontend 100%, 0 bugs). Example confirmed: paid 15L, refund 10L, retained 5L in CVF Total Received. DB left clean (sold=0, payments=0, cancellations=0).
 - ACTION FOR USER: Redeploy to push to production.
+
+---
+## PHASE 7 — Dashboard sold-plots header + Total Sold match + optional due date (2026-08-10)
+- AdminDashboard ProjectPivot header: replaced kind/'Project' label with '{sold}/{total} plots sold' (data-testid dash-soldplots-{project_id}).
+- _projects_overview: booked (Total Sold) now = sum(u.total or final_price for sold) so it EXACTLY matches the pivot Grand Total (total-tag) Sold(booked) row.
+- SellDialog.save(): due date now OPTIONAL. filled = rows with amount>0 (>=1 required); due_date = on_possession ? 'On Offer of Possession' : (r.due_date || sale_date). Removed the 'each row needs amount + due date' hard block.
+- Verified: testing agent iteration_12.json — 100% (dashboard header, Total Sold==pivot Grand Total for 1 & 3 plots, no-date booking succeeds, sale-date-required + no-amount errors intact, on-possession + explicit-date regressions pass). DB left clean (sold=0/payments=0/cancellations=0).
+- ACTION FOR USER: Redeploy to push to production.

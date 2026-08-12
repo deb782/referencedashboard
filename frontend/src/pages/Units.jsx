@@ -313,18 +313,16 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
 
   const save = async () => {
     if (!form.sale_date) return toast.error("Sale date is required");
-    // Ignore completely blank rows so a stray/empty row never blocks the sale
-    const filled = schedule.filter(r => Number(r.amount) > 0 || r.due_date || r.on_possession || (r.name || "").trim());
-    if (filled.length === 0) return toast.error("Add at least one payment row with an amount and a due date");
-    if (filled.some(r => !(Number(r.amount) > 0) || (!r.due_date && !r.on_possession)))
-      return toast.error("Each payment row needs an amount and a due date (or tick 'On Offer of Possession')");
+    // Only rows with an amount count; blank rows are ignored. Due date is optional (defaults to the sale date).
+    const filled = schedule.filter(r => Number(r.amount) > 0);
+    if (filled.length === 0) return toast.error("Add at least one payment row with an amount");
     setBusy(true);
     try {
       await api.post(`/units/${unit.unit_id}/sell`, {
         buyer_name: form.buyer_name, sale_date: form.sale_date,
         final_price: Number(form.final_price), booking_amount: Number(form.booking_amount),
         schedule: filled.map(r => ({
-          due_date: r.on_possession ? "On Offer of Possession" : r.due_date,
+          due_date: r.on_possession ? "On Offer of Possession" : (r.due_date || form.sale_date),
           amount: Number(r.amount), notes: r.name || "",
         })),
       });

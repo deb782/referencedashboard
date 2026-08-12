@@ -1,0 +1,20 @@
+{
+  "summary": "Verified BOTH new changes end-to-end on preview. (A) AdminDashboard project cards now show 'X/Y plots sold' header via data-testid dash-soldplots-{project_id} — initial state '0/47' (CVF) and '0/256' (VV); after 1 CVF booking '1/47'; after 3 bookings '3/47'. (B) SellDialog validation fix: (1) empty sale_date -> toast 'Sale date is required'; (2) all rows blank amount -> toast 'Add at least one payment row with an amount'; (3) amount>0 + NO due_date + possession unticked -> booking succeeds (toast 'Sale recorded — accounts & admin notified'). Regression: (4) amount + explicit due_date -> succeeds; (5) amount + 'On Offer of Possession' ticked -> succeeds. Total-Sold match verified: single CVF plot 32 with Grand Total ₹80,79,622.43 -> card 'Total Sold' = ₹80,79,622.43 AND pivot 'NET PAYABLE' TOTAL-tag row 'Sold (booked)' = ₹80,79,622.43 (exact match). After 3 bookings both equal ₹2,45,43,583.37. Cleanup: reverted 3 CVF sold units to available, deleted 3 payments, deleted sale_recorded/payment_received/booking_cancelled notifications. Final DB state: CVF sold=0, payments=0, cancellations=0, related notifications=0. unit.data untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend _projects_overview booked = sum(u.total or final_price for sold) — correctly matches the pivot's total-tag pivot sum_sold because that pivot key is the plot's Grand Total column. Verified numerically (single-plot and 3-plot cases).",
+    "SellDialog.save() correctly makes due_date optional: filled = schedule.filter(r => Number(r.amount)>0); due_date = on_possession ? 'On Offer of Possession' : (r.due_date || form.sale_date). Toast copy matches spec verbatim.",
+    "Toast assertions used [data-sonner-toast] selector (per prior guidance) to avoid page.content() false positives — confirmed reliable."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend E2E covered flow)", "frontend": "100% (5/5 scenarios + Total-Sold == pivot Grand Total)"},
+  "test_credentials": "Admin 9513242807 / Repro@123",
+  "seed_data_creation": "During tests, 3 CVF plots (32, 38, 40) were temporarily sold to TEST_ buyers to exercise the flow. All reverted to available; payments deleted; sale_recorded/payment_received/booking_cancelled notifications deleted via mongosh. unit.data intact, rates untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "data-testids: dash-soldplots-{project_id}, dash-project-{project_id}, s-buyer, s-date, s-price, s-booking, s-add-row, s-row-amt-N, s-row-date-N, s-possession-N, s-submit. Assert sonner toasts with [data-sonner-toast]. CVF proj_01d7e89ba838, VV proj_53fb360c1f0a. For DB cleanup after Sell tests: revert unit status to available (clear buyer_name/sale_date/final_price/booking_amount/sold_by/sold_at), delete payments/cancellations for project, delete notifications of type sale_recorded/payment_received/booking_cancelled.",
+  "rca of the issue": "N/A — both requested changes verified working as specified."
+}

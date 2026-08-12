@@ -89,7 +89,7 @@ function ProjectPivot({ p, idx }) {
     <div className={`card overflow-hidden ag-rise ag-rise-${idx + 1}`} data-testid={`dash-project-${p.project_id}`}>
       <div className="px-5 py-4 border-b border-agborder bg-surfacealt/40">
         <div className="font-display text-xl font-bold text-ink">{p.name}</div>
-        <div className="text-xs text-ink2 mt-0.5">{p.kind || "Project"}</div>
+        <div className="text-xs text-ink2 mt-0.5" data-testid={`dash-soldplots-${p.project_id}`}>{p.sold}/{p.total_units} plots sold</div>
         <div className="grid grid-cols-3 gap-3 mt-4">
           <Mini label="Total Sold" value={inr(p.booked_value)} />
           <Mini label="Total Received" value={inr(p.received_total)} />
