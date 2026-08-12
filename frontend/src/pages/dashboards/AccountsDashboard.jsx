@@ -16,7 +16,7 @@ export default function AccountsDashboard({ stats, user }) {
 
       <div className="card p-8 ag-rise mb-6">
         <div className="overline">Consolidated · All Projects</div>
-        <div className="grid grid-cols-3 gap-6 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-4">
           <Big label="Pending Collections" value={inr(con.pending_total)} tone="text-warn" />
           <Big label="Received" value={inr(con.received_total)} tone="text-ok" />
           <Big label="Total Booked" value={inr(con.booked_value)} tone="text-brand" />

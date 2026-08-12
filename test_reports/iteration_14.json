@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only regression + mobile responsiveness testing after Layout/pages presentational changes. Login (9513242807 / Repro@123) works on both viewports. Desktop (1440x900): sidebar always visible, hamburger hidden, all 6 nav pages (Dashboard/Projects/Users/Units/Sales/Procurement/Inventory) load without compile errors, sales tabs (Plots/Site/Cancellations) switch, Sell dialog opens on Units (303 sell buttons rendered). No regression detected. Mobile (390x844): hamburger visible, sidebar off-canvas (transform matrix -256,0 when closed), backdrop appears on open, backdrop click closes (backdrop removed from DOM), sidebar-close button works, nav link auto-closes sidebar on navigation. Units mobile: two tables wrapped in .overflow-x-auto containers (sw=573/583 vs cw=356), horizontally scrollable, no body overflow. Dashboard mobile: 3-col money grids collapse to single column (computed 316px each), no body overflow. Notifications panel opens on mobile, user menu opens with logout. Sell dialog opens on mobile Units. No functional regressions found. Two minor mobile polish issues noted below.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Sales page (mobile 390px)", "issues": ["Tab bar (Plots/Site/Cancellations) causes ~45px horizontal body overflow because the 3 tab buttons don't fit in 390px viewport and their container isn't wrapped in overflow-x-auto. Cancellations tab is clipped/partially visible on the right. Suggestion: wrap tabs container in overflow-x-auto or use flex-wrap/shrink."]},
+      {"screen": "Topbar notifications panel (mobile 390px)", "issues": ["Panel bounding box x=-24 (starts 24px left of viewport left edge) when notif-bell is opened on mobile. Panel is still functionally usable but slightly overflows due to right-0 positioning relative to bell container. max-w-[calc(100vw-2rem)] class is present but w-80 (320px) fits so it doesn't clamp. Consider anchoring differently on <sm to keep within viewport padding."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_14.json"],
+  "action_items": [
+    "(Optional/minor) Wrap Sales page tabs in overflow-x-auto or make them shrink on mobile to eliminate the ~45px horizontal body overflow.",
+    "(Optional/minor) Reposition or clamp notif panel width so it doesn't extend past the left viewport edge on small screens."
+  ],
+  "critical_code_review_comments": [
+    "Layout.jsx off-canvas implementation is clean and correct: uses translate-x with lg:translate-x-0, keeps aside always in DOM (good for transitions), sidebar auto-closes on route change via useEffect on loc.pathname.",
+    "data-testid coverage is thorough for the new mobile elements (sidebar-open, sidebar-close, sidebar-backdrop, notif-bell, notif-panel, user-menu, logout-btn, nav-*).",
+    "Sales.jsx tab list should be responsive; currently it's the only page that horizontally overflows the mobile viewport."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "95%"},
+  "test_credentials": "Admin 9513242807 / Repro@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. No sales recorded; DB state preserved (sold=0, payments=0, cancellations=0). Sell dialogs were only opened then Escape-closed without submission.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Layout.jsx off-canvas + overflow-x-auto table wrappers + grid-cols-1 sm:grid-cols-3 stacking all verified working. Only mobile issue remaining is Sales page tab bar overflowing horizontally ~45px on 390px viewport. Notifications panel has a slight (24px) left-of-viewport overflow on mobile but is functionally usable. Both are minor polish items, not blockers.",
+  "rca of the issue": "Sales tabs use fixed padding (px-5 py-3) and each tab is ~157px wide; 3 tabs = ~471px which exceeds 390px viewport and their parent container is not overflow-x-auto, so the overflow propagates to body. Notif panel uses right-0 within a small ref container near the top-right; on mobile w-80 (320px) extends leftward past viewport because its anchor point is close to the right edge but the container's left origin is < 0 after flex layout."
+}

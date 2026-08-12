@@ -83,7 +83,7 @@ function ProjectInventory({ project, user }) {
           hint={can(user, "admin") ? "Upload the inventory sheet or add a plot manually." : "Waiting for admin to upload inventory."} />
       ) : (
         <div className="max-h-[70vh] overflow-y-auto">
-          <table className="w-full">
+          <div className="overflow-x-auto"><table className="w-full">
             <thead className="sticky top-0 z-10"><tr className="border-b border-agborder bg-surfacealt/60">
               <th className="th">Plot</th>
               <th className="th text-right whitespace-nowrap">Extent (sq.ft)</th>
@@ -134,7 +134,7 @@ function ProjectInventory({ project, user }) {
                 </tr>
               );})}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
 
@@ -205,7 +205,7 @@ function UploadWizard({ project, onClose, onDone }) {
 
       {step === "map" && (
         <div className="max-h-[55vh] overflow-y-auto -mx-2 px-2">
-          <table className="w-full">
+          <div className="overflow-x-auto"><table className="w-full">
             <thead><tr className="border-b border-agborder"><th className="th">Column</th><th className="th">Sample</th><th className="th">Use as</th></tr></thead>
             <tbody>
               {columns.map((c, i) => (
@@ -220,7 +220,7 @@ function UploadWizard({ project, onClose, onDone }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
 
@@ -354,7 +354,7 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
           <div className="text-xs text-ink2 border border-agborder rounded-md px-3 py-3">No cost components — upload this project's sheet or edit the plot to add them.</div>
         ) : (
           <div className="border border-agborder rounded-md overflow-hidden">
-            <table className="w-full">
+            <div className="overflow-x-auto"><table className="w-full">
               <thead><tr className="bg-surfacealt/60 border-b border-agborder">
                 <th className="th py-2">Component</th><th className="th py-2 text-right">Amount</th>
               </tr></thead>
@@ -366,7 +366,7 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
       </div>
@@ -378,7 +378,7 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
           <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="s-add-row"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
         </div>
         <div className="border border-agborder rounded-md overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto"><table className="w-full">
             <thead><tr className="bg-surfacealt/60 border-b border-agborder">
               <th className="th py-2">Instalment name</th><th className="th py-2">Due date</th><th className="th py-2 text-right">Amount</th><th></th>
             </tr></thead>
@@ -403,7 +403,7 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
               ))}
             </tbody>
             <tfoot><tr className="bg-surfacealt/40"><td colSpan={2} className="px-3 py-2.5 text-sm font-semibold text-ink">Schedule total</td><td className="px-3 py-2.5 text-right font-mono-num font-bold">{inr(scheduleTotal)}</td><td></td></tr></tfoot>
-          </table>
+          </table></div>
         </div>
       </div>
     </Modal>

@@ -31,7 +31,7 @@ export default function Sales() {
         subtitle="Dues are grouped into two heads — Plots (buyer instalments) and Site (procurement bills)." />
 
       {/* Head toggle */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         <HeadTab active={head === "plots"} onClick={() => setHead("plots")} icon={Home}
           label="Plots" pending={plots.totals?.pending} testid="head-plots" />
         <HeadTab active={head === "site"} onClick={() => setHead("site")} icon={Building2}
@@ -50,7 +50,7 @@ export default function Sales() {
 
       {head === "plots" ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <Summary label="Plots — Billed" value={inr(plots.totals?.total)} tone="text-ink" />
             <Summary label="Received" value={inr(plots.totals?.paid)} tone="text-ok" />
             <Summary label="Pending" value={inr(plots.totals?.pending)} tone="text-warn" />
@@ -58,7 +58,7 @@ export default function Sales() {
           {(plots.projects || []).map((p) => (
             <SectionCard key={p.project_id} title={`${p.name} · ${p.plot_count} plot(s)`} className="ag-rise"
               action={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(p.pending)}</b></span>}>
-              <table className="w-full">
+              <div className="overflow-x-auto"><table className="w-full">
                 <thead><tr className="border-b border-agborder bg-surfacealt/40">
                   <th className="th">Plot</th><th className="th">Buyer</th><th className="th">Instalments</th>
                   <th className="th">Next due</th><th className="th text-right">Billed</th>
@@ -78,7 +78,7 @@ export default function Sales() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </SectionCard>
           ))}
           {(plots.projects || []).length === 0 && <EmptyState icon={Home} title="No plot dues yet" hint="Payments appear here once plots are sold." />}
@@ -91,7 +91,7 @@ export default function Sales() {
           </div>
           <SectionCard title="Procurement bills" className="ag-rise">
             {site.rows.length === 0 ? <EmptyState icon={Building2} title="No site bills" hint="Approved procurement bills appear here." /> : (
-              <table className="w-full">
+              <div className="overflow-x-auto"><table className="w-full">
                 <thead><tr className="border-b border-agborder bg-surfacealt/40">
                   <th className="th">Subject</th><th className="th">Project</th><th className="th">PO</th>
                   <th className="th text-right">Estimated</th><th className="th text-right">Paid</th>
@@ -110,7 +110,7 @@ export default function Sales() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
             <div className="px-5 py-3 text-xs text-ink2 border-t border-agborder">Record PO payments from the Procurement page. Milestone payment structure comes in the next phase.</div>
           </SectionCard>
@@ -151,14 +151,14 @@ function CancellationsView({ rows }) {
   const refunded = rows.reduce((s, r) => s + Number(r.amount_refunded || 0), 0);
   return (
     <div className="space-y-6" data-testid="cancellations-view">
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         <Summary label="Cancellations" value={rows.length} tone="text-ink" />
         <Summary label="Total Refunded" value={inr(refunded)} tone="text-warn" />
         <Summary label="Balance Retained" value={inr(retained)} tone="text-brand" />
       </div>
       <SectionCard title="Cancelled bookings" className="ag-rise">
         {rows.length === 0 ? <EmptyState icon={XCircle} title="No cancellations" hint="Cancelled bookings will appear here with paid, refunded and retained amounts." /> : (
-          <table className="w-full">
+          <div className="overflow-x-auto"><table className="w-full">
             <thead><tr className="border-b border-agborder bg-surfacealt/40">
               <th className="th">Date</th><th className="th">Plot</th><th className="th">Buyer</th>
               <th className="th text-right">Paid</th><th className="th text-right">Refunded</th>
@@ -177,7 +177,7 @@ function CancellationsView({ rows }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </SectionCard>
     </div>
@@ -203,7 +203,7 @@ function PlotDrilldown({ plot, canPay, onClose, onChanged }) {
       subtitle={`Billed ${inr(billed)} · Received ${inr(paid)} · Pending ${inr(billed - paid)}`}
       onClose={onClose}
       footer={<button onClick={onClose} className="btn-secondary">Close</button>}>
-      <table className="w-full">
+      <div className="overflow-x-auto"><table className="w-full">
         <thead><tr className="border-b border-agborder">
           <th className="th">Instalment</th><th className="th">Due</th><th className="th text-right">Amount</th>
           <th className="th text-right">Paid</th><th className="th text-right">Balance</th><th className="th">Status</th>
@@ -233,7 +233,7 @@ function PlotDrilldown({ plot, canPay, onClose, onChanged }) {
             );
           })}
         </tbody>
-      </table>
+      </table></div>
 
       {receiptFor && (
         <ReceiptDialog payment={receiptFor} onClose={() => setReceiptFor(null)}

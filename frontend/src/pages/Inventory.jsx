@@ -64,7 +64,7 @@ export default function Inventory() {
       </PageHeader>
 
       <div className="card overflow-hidden ag-rise">
-        <table className="w-full">
+        <div className="overflow-x-auto"><table className="w-full">
           <thead><tr className="border-b border-agborder bg-surfacealt/50">
             <th className="th">Item</th><th className="th text-right">Qty</th><th className="th">Unit</th><th className="th">Notes</th><th className="th">Updated</th><th className="th text-right">Action</th>
           </tr></thead>
@@ -91,7 +91,7 @@ export default function Inventory() {
             })}
             {items.length === 0 && <tr><td colSpan={6}><EmptyState icon={Boxes} title="No inventory items yet" hint="Add materials to start tracking on-site stock." /></td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {showForm && (

@@ -170,7 +170,7 @@ function NewProcurement({ projects, user, onClose, onSaved }) {
           <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="proc-add-item"><Plus className="w-3.5 h-3.5" /> Add row</button>
         </div>
         <div className="border border-agborder rounded-md overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto"><table className="w-full">
             <thead><tr className="bg-surfacealt/60 border-b border-agborder">
               <th className="th py-2">Name</th><th className="th py-2 text-right">Qty</th><th className="th py-2">Unit</th><th className="th py-2 text-right">Est. cost/unit</th><th></th>
             </tr></thead>
@@ -185,7 +185,7 @@ function NewProcurement({ projects, user, onClose, onSaved }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       </div>
     </Modal>
@@ -307,7 +307,7 @@ function MilestoneDialog({ req, user, onClose, onRefresh }) {
         <button onClick={saveStructure} disabled={busy} className="btn-primary" data-testid="ms-save">{busy ? "Saving…" : saved ? "Update structure" : "Save structure"}</button></>}>
       <div className="text-xs text-ink2 mb-3">Define milestones e.g. 50% advance on a date, 50% on completion. Mark each paid as accounts clears it.</div>
       <div className="border border-agborder rounded-md overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto"><table className="w-full">
           <thead><tr className="bg-surfacealt/60 border-b border-agborder">
             <th className="th py-2">Milestone</th><th className="th py-2 text-right">Amount</th><th className="th py-2">Due</th><th className="th py-2">Status</th><th></th>
           </tr></thead>
@@ -327,7 +327,7 @@ function MilestoneDialog({ req, user, onClose, onRefresh }) {
             ))}
           </tbody>
           <tfoot><tr className="bg-surfacealt/40"><td className="px-2 py-2.5 text-sm font-semibold">Total</td><td className="px-2 py-2.5 text-right font-mono-num font-bold">{inr(total)}</td><td colSpan={3}></td></tr></tfoot>
-        </table>
+        </table></div>
       </div>
       <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1 mt-3" data-testid="ms-add"><Plus className="w-3.5 h-3.5" /> Add milestone</button>
     </Modal>

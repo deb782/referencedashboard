@@ -54,7 +54,7 @@ export default function Users() {
       </PageHeader>
 
       <div className="card overflow-hidden ag-rise">
-        <table className="w-full">
+        <div className="overflow-x-auto"><table className="w-full">
           <thead><tr className="border-b border-agborder bg-surfacealt/50">
             <th className="th">Name</th><th className="th">Phone</th><th className="th">Role</th><th className="th">Project</th><th className="th">First login</th><th className="th text-right">Action</th>
           </tr></thead>
@@ -78,7 +78,7 @@ export default function Users() {
             ))}
             {rows.length === 0 && <tr><td colSpan={6}><EmptyState icon={UsersIcon} title="No team members yet" hint="Add your accounts, post-sales and site-manager users." /></td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {showForm && (

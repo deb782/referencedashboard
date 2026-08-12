@@ -19,7 +19,7 @@ export default function PostSalesDashboard({ stats, user }) {
           <div key={p.project_id} className={`card p-6 ag-rise ag-rise-${i + 1}`} data-testid={`dash-project-${p.project_id}`}>
             <div className="font-display text-xl font-bold text-ink">{p.name}</div>
             <div className="text-xs text-ink2 mt-0.5">{p.kind || "Project"}</div>
-            <div className="grid grid-cols-3 gap-4 mt-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
               <Stat label="Available" value={p.available} tone="text-ok" />
               <Stat label="Sold" value={p.sold} tone="text-brand" />
               <Stat label="Booked value" value={inr(p.booked_value)} tone="text-ink" small />
@@ -34,7 +34,7 @@ export default function PostSalesDashboard({ stats, user }) {
         <SectionCard title="Recent Sales"
           action={<Link to="/sales" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1">Sales & Payments <ArrowUpRight className="w-3.5 h-3.5" /></Link>}>
           {recent.length === 0 ? <EmptyState icon={TrendingUp} title="No sales yet" hint="Booked plots will appear here." /> : (
-            <table className="w-full">
+            <div className="overflow-x-auto"><table className="w-full">
               <thead><tr className="border-b border-agborder"><th className="th">Plot</th><th className="th">Buyer</th><th className="th">Date</th><th className="th text-right">Final price</th></tr></thead>
               <tbody>
                 {recent.map(u => (
@@ -46,7 +46,7 @@ export default function PostSalesDashboard({ stats, user }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </SectionCard>
       </div>

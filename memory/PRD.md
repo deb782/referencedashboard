@@ -226,3 +226,13 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Verified in preview: injected NaN/Inf into a unit -> restart -> startup scrubbed it (total->0, data val->null), /dashboard + /units 200. Testing agent iteration_13.json: 100% (login + all endpoints + all pages, clean startup, no regression).
 - Production login note: production DB is separate; preview password 'Repro@123' does NOT work on prod (confirmed 401). User must use their production password.
 - ACTION FOR USER: REDEPLOY. On deploy the scrub cleans prod data and the 520 on login/dashboard should be resolved.
+
+---
+## PHASE 8 — Full mobile responsiveness (2026-08-12)
+- Layout.jsx: sidebar off-canvas on <1024px (translate-x + lg:translate-x-0) with hamburger (data-testid sidebar-open), close btn (sidebar-close), backdrop (sidebar-backdrop); auto-closes on route change; topbar left-0 lg:left-64, px-4 lg:px-8; main ml-0 lg:ml-64; content p-4 sm:p-6 lg:p-8.
+- All page tables wrapped in <div class="overflow-x-auto"> (Sales, Units, Users, Procurement, Inventory, AdminDashboard, PostSalesDashboard) so wide tables scroll instead of clipping.
+- 3-col money/summary grids -> grid-cols-1 sm:grid-cols-3 (stack on phones): AdminDashboard project cards, Sales summaries + CancellationsView, Accounts/PostSales dashboards.
+- Sales head tabs -> flex-wrap (no horizontal overflow). Notif panel -> fixed left-3 right-3 on mobile, sm:absolute w-96 (stays in viewport).
+- Verified: testing agent iteration_14.json 95% (no functional regression, desktop + mobile 390px), then the 2 flagged minor overflows (Sales tabs, notif panel) fixed and re-verified via screenshot (body scrollWidth==390, notif box x=12 w=366).
+- CAUTION LEARNED: do NOT run two replace_all edits on the SAME file in one parallel batch — it caused a race that corrupted Sales.jsx tail (duplicated ReceiptDialog close + round2); fixed by removing the duplicate. Sequence same-file edits.
+- DB left clean (sold/payments/cancellations/notifications = 0). ACTION FOR USER: Redeploy to push responsive UI to production.

@@ -53,7 +53,7 @@ export default function AdminDashboard({ stats, user }) {
           {!(s.site_bills?.milestones || []).length ? (
             <EmptyState icon={Package} title="No PO milestones" hint="Payment structures set by accounts show here." />
           ) : (
-            <table className="w-full">
+            <div className="overflow-x-auto"><table className="w-full">
               <thead><tr className="border-b border-agborder"><th className="th">Milestone</th><th className="th">PO</th><th className="th">Due</th><th className="th text-right">Amount</th><th className="th">Status</th></tr></thead>
               <tbody>
                 {s.site_bills.milestones.map((m, i) => (
@@ -66,7 +66,7 @@ export default function AdminDashboard({ stats, user }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </SectionCard>
       </div>
@@ -90,7 +90,7 @@ function ProjectPivot({ p, idx }) {
       <div className="px-5 py-4 border-b border-agborder bg-surfacealt/40">
         <div className="font-display text-xl font-bold text-ink">{p.name}</div>
         <div className="text-xs text-ink2 mt-0.5" data-testid={`dash-soldplots-${p.project_id}`}>{p.sold}/{p.total_units} plots sold</div>
-        <div className="grid grid-cols-3 gap-3 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
           <Mini label="Total Sold" value={inr(p.booked_value)} />
           <Mini label="Total Received" value={inr(p.received_total)} />
           <Mini label="Total Pending" value={inr(p.pending_total)} />
@@ -100,7 +100,7 @@ function ProjectPivot({ p, idx }) {
         <EmptyState icon={Layers} title="No pivot yet" hint="Upload this project's inventory to see component totals." />
       ) : (
         <div className="max-h-96 overflow-y-auto">
-          <table className="w-full">
+          <div className="overflow-x-auto"><table className="w-full">
             <thead className="sticky top-0 bg-white"><tr className="border-b border-agborder">
               <th className="th">Component</th><th className="th text-right">Sold (booked)</th>
             </tr></thead>
@@ -112,7 +112,7 @@ function ProjectPivot({ p, idx }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
     </div>

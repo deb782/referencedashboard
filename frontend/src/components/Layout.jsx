@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Building2, Users, Home as HomeIcon,
-  HandCoins, Package, Boxes, Bell, LogOut, ChevronDown, Sprout,
+  HandCoins, Package, Boxes, Bell, LogOut, ChevronDown, Sprout, Menu, X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth, ROLE_LABELS } from "@/lib/auth";
@@ -32,6 +32,7 @@ export default function Layout({ children }) {
   const [notifs, setNotifs] = useState([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [showUser, setShowUser] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const notifRef = useRef(null);
   const userRef = useRef(null);
 
@@ -39,6 +40,7 @@ export default function Layout({ children }) {
     try { const r = await api.get("/notifications"); setNotifs(r.data); } catch {}
   };
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [loc.pathname]);
+  useEffect(() => { setSidebarOpen(false); }, [loc.pathname]);
 
   useEffect(() => {
     const onClick = (e) => {
@@ -56,16 +58,24 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-screen bg-page">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-40 lg:hidden" onClick={() => setSidebarOpen(false)} data-testid="sidebar-backdrop" />
+      )}
+
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-agborder flex flex-col z-40">
+      <aside className={`fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-agborder flex flex-col z-50 transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="h-16 flex items-center gap-3 px-5 border-b border-agborder">
           <div className="w-9 h-9 rounded-sm bg-brand flex items-center justify-center shrink-0">
             <Sprout className="w-5 h-5 text-white" strokeWidth={2.2} />
           </div>
-          <div className="leading-tight">
+          <div className="leading-tight flex-1">
             <div className="font-display font-extrabold text-ink tracking-tight">Agrocorp</div>
             <div className="text-[10px] uppercase tracking-[0.18em] text-ink2 font-semibold">Lite Console</div>
           </div>
+          <button onClick={() => setSidebarOpen(false)} className="lg:hidden w-8 h-8 rounded-sm hover:bg-surfacealt flex items-center justify-center" data-testid="sidebar-close">
+            <X className="w-5 h-5 text-ink2" />
+          </button>
         </div>
 
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
@@ -103,7 +113,10 @@ export default function Layout({ children }) {
       </aside>
 
       {/* Topbar */}
-      <header className="fixed top-0 right-0 left-64 h-16 bg-white/80 backdrop-blur-xl border-b border-agborder z-30 px-8 flex items-center justify-between gap-6">
+      <header className="fixed top-0 right-0 left-0 lg:left-64 h-16 bg-white/80 backdrop-blur-xl border-b border-agborder z-30 px-4 lg:px-8 flex items-center justify-between gap-3 lg:gap-6">
+        <button onClick={() => setSidebarOpen(true)} className="lg:hidden w-10 h-10 -ml-1 rounded-sm hover:bg-surfacealt flex items-center justify-center shrink-0" data-testid="sidebar-open">
+          <Menu className="w-5 h-5 text-ink" />
+        </button>
         <GlobalSearch />
         <div className="flex items-center gap-2 shrink-0">
           {/* Notifications */}
@@ -115,7 +128,7 @@ export default function Layout({ children }) {
               )}
             </button>
             {showNotifs && (
-              <div className="absolute right-0 top-12 w-96 bg-white border border-agborder rounded-sm shadow-[0_12px_40px_-8px_rgba(20,21,20,0.25)] z-50 ag-modal" data-testid="notif-panel">
+              <div className="fixed sm:absolute top-16 sm:top-12 left-3 right-3 sm:left-auto sm:right-0 w-auto sm:w-96 bg-white border border-agborder rounded-sm shadow-[0_12px_40px_-8px_rgba(20,21,20,0.25)] z-50 ag-modal" data-testid="notif-panel">
                 <div className="px-4 py-3 border-b border-agborder flex justify-between items-center">
                   <div className="overline text-ink">Notifications</div>
                   {unread > 0 && <button onClick={markAll} className="text-xs font-semibold text-brand hover:text-brand-hover" data-testid="notif-mark-all">Mark all read</button>}
@@ -162,8 +175,8 @@ export default function Layout({ children }) {
       </header>
 
       {/* Main */}
-      <main className="ml-64 pt-16 min-h-screen">
-        <div className="p-8 max-w-[1600px]">{children}</div>
+      <main className="ml-0 lg:ml-64 pt-16 min-h-screen">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-[1600px]">{children}</div>
       </main>
     </div>
   );
