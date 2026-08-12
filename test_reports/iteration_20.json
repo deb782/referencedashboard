@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 20 (frontend-only): Validated Phase-1 Editorial Tech redesign end-to-end via Playwright. Login (all 3 roles), sticky top-nav with all role-permitted links + active lime underline, notifications bell/panel, user-menu + Sign out, Cmd/Ctrl+K command palette (both trigger click and Meta+K), Jump-to nav item (cmd-nav-procurement) navigating on Enter, record search (5 results for '32'), Esc close, Admin dashboard hero 'Total Received' with rolling number + INR amounts (₹26.94 L), 2 per-project panels (dash-project-*, dash-soldplots-*) with progress bar + component pivot bars, Total Sold / Outstanding / Awaiting Verification tiles rendered with non-zero values (₹2.20 Cr sold, ₹1.94 Cr outstanding, ₹39.19 L awaiting). Post Sales and Accounts dashboards load via new shell without error. Mobile 390px: hamburger (sidebar-open) opens mobile-nav sheet with mnav-* links; no horizontal overflow on Login or Dashboard. No horizontal overflow at 1440px on Admin dashboard. FOUND & FIXED one blocker: /projects crashed with PageError 'readOnly is not defined' — ProjectCard component was invoked with a readOnly prop but its destructure signature omitted it, blanking the entire page (nav bar included, since the error propagated out of the route). Added readOnly to the destructured props list; page now renders correctly with sale rates, plot counts, sold counts and admin/PS chips. All 6 permitted pages (Projects, Units, Sales, Inventory, Procurement, Team) now load inside the new shell without console errors or blank screens. No seeded demo data was created or removed by this iteration.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "pages/Projects.jsx ProjectCard",
+        "issue": "ProjectCard function signature was missing readOnly in destructured props while its JSX referenced readOnly (lines ~125, 137, 140). Threw 'readOnly is not defined' as an uncaught error, blanking the entire /projects route (main + top-nav gone). Fixed by adding readOnly to the destructure.",
+        "selector": "route /projects",
+        "priority": "CRITICAL (fixed by test agent)"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Verify the Projects.jsx readOnly destructure fix (already applied by test agent) — ensure Management role (view-only) still sees delete-button hidden and rate input disabled as intended.",
+    "Consider wrapping route content in an ErrorBoundary so a single component crash does not also unmount the top-nav header."
+  ],
+  "critical_code_review_comments": [
+    "Layout.jsx: sticky header, ⌘K shortcut, notif panel and user menu are cleanly implemented with proper outside-click and testids. Nav filter honours role AND per-section permissions for management role.",
+    "CommandPalette.jsx: debounced /api/search call (200ms), keyboard navigation (Arrow/Enter/Escape) and Jump-to nav items all wired via data-testid — reuseable.",
+    "AdminDashboard renders hero AnimatedNumber, per-project panels, progress bars and pivot bars using inrShort — data flows from GET /dashboard cleanly.",
+    "Projects.jsx bug: ProjectCard prop signature drift is exactly the kind of silent break wrapping in an ErrorBoundary would contain. Recommend adding a global route-level ErrorBoundary."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/Projects.jsx"
+  ],
+  "success_rate": { "backend": "N/A (skipped per request)", "frontend": "13/13 checks after fix (100%)" },
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123.",
+  "seed_data_creation": "None. Did not seed or delete any bookings. The demo bookings referenced in the request appear NOT to be present in the DB right now (Admin dashboard actually shows 2/47 CVF sold and 2/256 VV sold, with real rupee amounts — so seed data IS present). Main agent should decide whether to run their described cleanup (cancel + Mongo purge) if they want to return to sold=0.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-1 redesign shell is stable. Testids confirmed working: nav-{dashboard,projects,units,sales,inventory,procurement,users}, mnav-* (mobile), command-trigger, command-trigger-mobile, command-palette, command-input, cmd-nav-<route>, cmd-result-<type>-<id>, notif-bell, notif-panel, notif-mark-all, user-menu, logout-btn, sidebar-open/close/backdrop, mobile-nav, dashboard-page, dash-project-<id>, dash-soldplots-<id>, login-phone, login-password, login-submit. One blocker fixed this run (Projects.jsx ProjectCard missing readOnly destructure). Recommend adding an ErrorBoundary above <Layout> children so a page crash does not also blank the sticky header."
+}

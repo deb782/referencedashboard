@@ -35,10 +35,10 @@ export default function ResetPassword() {
     <div className="min-h-screen flex items-center justify-center bg-page p-6">
       <div className="w-full max-w-md ag-rise">
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-sm bg-white border border-agborder flex items-center justify-center overflow-hidden"><img src="/agrocorp-logo.webp" alt="Agrocorp" className="w-full h-full object-contain p-1" /></div>
+          <div className="w-11 h-11 rounded-xl brandplate"><img src="/agrocorp-arch-white.webp" alt="Agrocorp" className="w-7 h-7 object-contain" /></div>
           <div>
-            <div className="font-display font-extrabold text-xl text-ink leading-tight">Management Dashboard</div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-ink2 font-semibold">Stakeholder Console</div>
+            <div className="font-display font-semibold text-xl text-ink leading-tight tracking-tight">Management Dashboard</div>
+            <div className="text-[9.5px] uppercase tracking-[0.22em] text-ink2 font-semibold mt-0.5">Stakeholder Console</div>
           </div>
         </div>
         <div className="card p-8">

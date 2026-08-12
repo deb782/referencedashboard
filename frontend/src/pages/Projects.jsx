@@ -92,7 +92,7 @@ export default function Projects() {
   );
 }
 
-function ProjectCard({ p, idx, count, admins, postSales, onDelete, onSaved }) {
+function ProjectCard({ p, idx, count, admins, postSales, onDelete, onSaved, readOnly }) {
   const [rate, setRate] = useState(p.rate_per_sqft || 0);
   const [busy, setBusy] = useState(false);
   const dirty = Number(rate) !== Number(p.rate_per_sqft || 0);

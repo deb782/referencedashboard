@@ -1,7 +1,43 @@
 import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 
 export const inr = (n) =>
   "\u20B9" + (Number(n) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Rolling number that interpolates on value change (respects reduced-motion)
+export function AnimatedNumber({ value, format = (v) => Math.round(v).toLocaleString("en-IN"), duration = 700, className = "" }) {
+  const [display, setDisplay] = useState(Number(value) || 0);
+  const fromRef = useRef(Number(value) || 0);
+  const rafRef = useRef();
+  useEffect(() => {
+    const to = Number(value) || 0;
+    const from = fromRef.current;
+    if (from === to) { setDisplay(to); return; }
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) { fromRef.current = to; setDisplay(to); return; }
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(from + (to - from) * eased);
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+      else fromRef.current = to;
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [value, duration]);
+  return <span className={className}>{format(display)}</span>;
+}
+
+export const inrShort = (n) => {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? "-" : "";
+  const a = Math.abs(v);
+  if (a >= 1e7) return sign + "\u20B9" + (a / 1e7).toFixed(a >= 1e8 ? 1 : 2) + " Cr";
+  if (a >= 1e5) return sign + "\u20B9" + (a / 1e5).toFixed(2) + " L";
+  if (a >= 1e3) return sign + "\u20B9" + (a / 1e3).toFixed(1) + "K";
+  return sign + "\u20B9" + Math.round(a).toLocaleString("en-IN");
+};
 
 export const num2 = (n) =>
   (Number(n) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

@@ -1439,12 +1439,12 @@ def _build_report_pdf(d: dict) -> bytes:
     small = ParagraphStyle("s", fontName="Helvetica", fontSize=8.5, textColor=INK, leading=11)
     story = []
 
-    logo_path = "/app/frontend/public/companies-logo.png"
+    logo_path = "/app/frontend/public/report-logo.png"
     brand = []
     if os.path.exists(logo_path):
         try:
             img = RLImage(logo_path)
-            img._restrictSize(46 * mm, 30 * mm)
+            img._restrictSize(50 * mm, 22 * mm)
             brand.append(img)
         except Exception:
             pass
