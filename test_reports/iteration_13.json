@@ -1,0 +1,21 @@
+{
+  "summary": "Regression pass for SafeJSONResponse + _scrub_nonfinite_data startup routine. Backend starts cleanly (Application startup complete; scrub logged 'Scrubbed non-finite numbers from 1 document(s)' during earlier boot then clean thereafter). Admin login (9513242807/Repro@123) returns 200 with access_token+user. All 9 requested endpoints return 200. Frontend loads dashboard rendering both project cards (Vacation Village 0/256, Central Vista Farms 0/47) with Total Sold/Received/Pending = ₹0.00, and Projects/Units/Sales/Team all navigate without errors or blank screens.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_regression_scrub.py",
+    "/app/test_reports/pytest/scrub_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Prior deploy had a NameError: _scrub_nonfinite_data referenced before definition (backend.err.log). It has since been resolved by hot reload; ensure the function is defined at module level above startup() in production build to avoid a repeat outage on cold start."
+  ],
+  "updated_files": ["/app/backend/tests/test_regression_scrub.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (login + 4 pages)"},
+  "test_credentials": "admin phone 9513242807 / Repro@123",
+  "seed_data_creation": "None. DB state kept clean (0 sold / 0 payments / 0 cancellations).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend project list uses field 'project_id' (not 'id'). Login payload key is 'phone' (not email). Two seed projects: proj_53fb360c1f0a (VV, 256), proj_01d7e89ba838 (CVF, 47).",
+  "rca of the issue": "Historical: Cloudflare 520 traced to NaN/Inf floats from spreadsheet import breaking JSON serialization. Mitigations verified in this run: (a) SafeJSONResponse as default_response_class sanitizes non-finite at response time; (b) _scrub_nonfinite_data() at startup scans units/payments/cancellations and $sets sanitized values (observed sanitising 1 doc during a prior boot). No 5xx observed; login + post-login load path healthy."
+}

@@ -217,3 +217,12 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - SellDialog.save(): due date now OPTIONAL. filled = rows with amount>0 (>=1 required); due_date = on_possession ? 'On Offer of Possession' : (r.due_date || sale_date). Removed the 'each row needs amount + due date' hard block.
 - Verified: testing agent iteration_12.json — 100% (dashboard header, Total Sold==pivot Grand Total for 1 & 3 plots, no-date booking succeeds, sale-date-required + no-amount errors intact, on-possession + explicit-date regressions pass). DB left clean (sold=0/payments=0/cancellations=0).
 - ACTION FOR USER: Redeploy to push to production.
+
+---
+## HOTFIX 4 — Production 520 on login (post-login data load) (2026-08-10)
+- Diagnosis: direct probes to https://read-start-2.emergent.host showed the backend is UP and /api/auth/login is healthy (fast, correct 401s, no 520). So the 520 is on the post-login data load (/dashboard etc.) choking on NaN/Inf numbers in production spreadsheet data — same class as HOTFIX 3.
+- Fix added: startup routine _scrub_nonfinite_data() scans db.units/db.payments/db.cancellations on boot and $sets sanitized values (NaN/Inf -> 0/null) via _has_nonfinite + _sanitize_nonfinite. Complements the existing SafeJSONResponse (response-time NaN safety). So a REDEPLOY purges bad numbers already in the production DB.
+- Note: _scrub_nonfinite_data + _has_nonfinite are defined at module level ABOVE startup() (safe on cold start; Python resolves at call time anyway).
+- Verified in preview: injected NaN/Inf into a unit -> restart -> startup scrubbed it (total->0, data val->null), /dashboard + /units 200. Testing agent iteration_13.json: 100% (login + all endpoints + all pages, clean startup, no regression).
+- Production login note: production DB is separate; preview password 'Repro@123' does NOT work on prod (confirmed 401). User must use their production password.
+- ACTION FOR USER: REDEPLOY. On deploy the scrub cleans prod data and the 520 on login/dashboard should be resolved.

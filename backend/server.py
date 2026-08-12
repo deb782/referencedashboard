@@ -1719,11 +1719,39 @@ ROLE_LABELS_PY = {
 app.include_router(api)
 
 
+def _has_nonfinite(v) -> bool:
+    if isinstance(v, float):
+        return not math.isfinite(v)
+    if isinstance(v, dict):
+        return any(_has_nonfinite(x) for x in v.values())
+    if isinstance(v, list):
+        return any(_has_nonfinite(x) for x in v)
+    return False
+
+
+async def _scrub_nonfinite_data():
+    """Replace any NaN/Infinity numbers already stored in the DB with 0 so
+    aggregations and JSON serialization can never break on bad spreadsheet data.
+    Runs on startup; cheap for these collection sizes."""
+    fixed = 0
+    for coll in (db.units, db.payments, db.cancellations):
+        async for doc in coll.find({}):
+            if _has_nonfinite(doc):
+                clean = _sanitize_nonfinite({k: v for k, v in doc.items() if k != "_id"})
+                clean = {k: (0.0 if v is None and isinstance(doc.get(k), float) else v)
+                         for k, v in clean.items()}
+                await coll.update_one({"_id": doc["_id"]}, {"$set": clean})
+                fixed += 1
+    if fixed:
+        log.info("Scrubbed non-finite numbers from %d document(s)", fixed)
+
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("phone", unique=True)
     await db.units.create_index("unit_id")
     await db.units.create_index([("project_id", 1), ("plot_number", 1)])
+    await _scrub_nonfinite_data()
     try:
         init_storage()
         log.info("Object storage initialised")
