@@ -1309,6 +1309,260 @@ async def correct_receipt(payment_id: str, receipt_id: str, payload: ReceiptCrea
     return {"ok": True}
 
 
+# ----- plot-wise payment report (PDF) -------------------------------------
+def _inr_plain(n) -> str:
+    """Indian-grouped rupee string that renders with core PDF fonts (Rs. prefix)."""
+    import re
+    v = int(round(_num(n)))
+    neg = v < 0
+    s = str(abs(v))
+    if len(s) > 3:
+        s = re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", s[:-3]) + "," + s[-3:]
+    return ("-" if neg else "") + "Rs. " + s
+
+
+async def _plot_report_data(unit_id: str) -> dict:
+    unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
+    if not unit:
+        raise HTTPException(404, "Plot not found")
+    proj = await db.projects.find_one({"project_id": unit["project_id"]}, {"_id": 0}) or {}
+    cols = proj.get("columns") or []
+    pays = await db.payments.find({"unit_id": unit_id}, {"_id": 0}).sort("seq", 1).to_list(500)
+
+    verified_by_key: dict = {}
+    history = []
+    for p in pays:
+        inst = p.get("notes") or f"Instalment {p.get('seq')}"
+        for r in p.get("receipts", []):
+            if r.get("verification_status") == "verified":
+                for a in r.get("allocations", []):
+                    k = a.get("key", "")
+                    verified_by_key[k] = verified_by_key.get(k, 0.0) + _num(a.get("amount"))
+            history.append({
+                "date": r.get("date") or "",
+                "amount": round(_num(r.get("amount")), 2),
+                "components": ", ".join(a.get("label", "") for a in r.get("allocations", [])) or "—",
+                "mode": r.get("mode") or "—",
+                "head": r.get("head") or "—",
+                "installment": inst,
+                "verification_status": r.get("verification_status", "pending"),
+            })
+    history.sort(key=lambda x: x["date"])
+
+    components = []
+    for c in cols:
+        if c.get("tag") != "charge":
+            continue
+        amt = round(_num(unit.get("data", {}).get(c["key"])), 2)
+        vr = round(verified_by_key.get(c["key"], 0.0), 2)
+        if amt == 0 and vr == 0:
+            continue
+        components.append({"label": c.get("label", c["key"]), "amount": amt,
+                           "verified": vr, "balance": round(amt - vr, 2)})
+
+    total_payable = round(_num(unit.get("total")) or _num(unit.get("final_price")), 2)
+    plan, verified_total, awaiting_total = [], 0.0, 0.0
+    for p in pays:
+        exp = round(_num(p.get("amount")), 2)
+        rec = round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
+                        if r.get("verification_status") == "verified"), 2)
+        awaiting = round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
+                             if r.get("verification_status") == "pending"), 2)
+        verified_total += rec
+        awaiting_total += awaiting
+        plan.append({"installment": p.get("notes") or f"Instalment {p.get('seq')}",
+                     "due": p.get("due_date") or "—", "expected": exp, "received": rec,
+                     "balance": round(exp - rec, 2), "status": p.get("status", "pending")})
+    verified_total = round(verified_total, 2)
+    awaiting_total = round(awaiting_total, 2)
+    outstanding = round(total_payable - verified_total, 2)
+
+    pending_rows = [p for p in pays if p.get("status") != "received"]
+    next_due, next_due_date = None, None
+    if pending_rows:
+        nd = sorted(pending_rows, key=lambda x: x.get("due_date") or "z")[0]
+        nd_rec = round(sum(_num(r.get("amount")) for r in nd.get("receipts", [])
+                           if r.get("verification_status") == "verified"), 2)
+        next_due = round(_num(nd.get("amount")) - nd_rec, 2)
+        next_due_date = nd.get("due_date")
+
+    expected_remaining = [{"amount": round(_num(r.get("amount")), 2),
+                           "date": r.get("expected_remaining_date")}
+                          for p in pays for r in p.get("receipts", [])
+                          if r.get("expected_remaining_date")
+                          and r.get("verification_status") in ("pending", "verified")]
+    upcoming = [{"installment": p.get("notes") or f"Instalment {p.get('seq')}",
+                 "due": p.get("due_date"), "balance": round(_num(p.get("amount")) - _num(p.get("paid_amount")), 2)}
+                for p in pays if p.get("status") != "received"]
+
+    return {
+        "project_name": proj.get("name", ""),
+        "plot_number": unit.get("plot_number", "?"),
+        "customer": unit.get("buyer_name") or "—",
+        "booking_date": unit.get("sale_date") or (unit.get("sold_at") or "")[:10] or "—",
+        "total_payable": total_payable,
+        "verified_received": verified_total,
+        "outstanding": outstanding,
+        "awaiting_verification": awaiting_total,
+        "next_due": next_due,
+        "next_due_date": next_due_date or "—",
+        "components": components,
+        "plan": plan,
+        "history": history,
+        "expected_remaining": expected_remaining,
+        "upcoming": upcoming,
+    }
+
+
+def _build_report_pdf(d: dict) -> bytes:
+    import io
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                    TableStyle, Image as RLImage, HRFlowable)
+
+    OLIVE = colors.HexColor("#5a6b10")
+    INK = colors.HexColor("#2b2b26")
+    MUTE = colors.HexColor("#6b6b60")
+    CREAM = colors.HexColor("#f4f2e8")
+    BORDER = colors.HexColor("#d9d6c6")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=16 * mm, bottomMargin=16 * mm,
+                            leftMargin=16 * mm, rightMargin=16 * mm,
+                            title=f"Payment Report - Plot {d['plot_number']}")
+    W = doc.width
+    H = lambda t: Paragraph(t, ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=11,
+                            textColor=OLIVE, spaceBefore=10, spaceAfter=5, leading=13))
+    small = ParagraphStyle("s", fontName="Helvetica", fontSize=8.5, textColor=INK, leading=11)
+    story = []
+
+    logo_path = "/app/frontend/public/companies-logo.png"
+    brand = []
+    if os.path.exists(logo_path):
+        try:
+            img = RLImage(logo_path)
+            img._restrictSize(46 * mm, 30 * mm)
+            brand.append(img)
+        except Exception:
+            pass
+    title_cell = [
+        Paragraph("PAYMENT REPORT", ParagraphStyle("t", fontName="Helvetica-Bold",
+                  fontSize=18, textColor=INK, leading=20)),
+        Paragraph(f"{d['project_name']} &nbsp;·&nbsp; Plot {d['plot_number']}",
+                  ParagraphStyle("t2", fontName="Helvetica", fontSize=10, textColor=MUTE, spaceBefore=3)),
+    ]
+    head = Table([[brand or "", title_cell]], colWidths=[52 * mm, W - 52 * mm])
+    head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                              ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
+    story += [head, Spacer(1, 6), HRFlowable(width="100%", color=OLIVE, thickness=1.4), Spacer(1, 8)]
+
+    # Plot Information
+    story.append(H("Plot Information"))
+    info = [["Project", d["project_name"], "Booking Date", d["booking_date"]],
+            ["Plot", d["plot_number"], "Customer", d["customer"]]]
+    t = Table(info, colWidths=[W * 0.16, W * 0.34, W * 0.18, W * 0.32])
+    t.setStyle(TableStyle([
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 9),
+        ("FONT", (0, 0), (0, -1), "Helvetica-Bold", 9), ("FONT", (2, 0), (2, -1), "Helvetica-Bold", 9),
+        ("TEXTCOLOR", (0, 0), (0, -1), MUTE), ("TEXTCOLOR", (2, 0), (2, -1), MUTE),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5), ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, BORDER)]))
+    story.append(t)
+
+    # Payment Summary
+    story.append(H("Payment Summary"))
+    sm = [["Total Payable", _inr_plain(d["total_payable"]), "Verified Received", _inr_plain(d["verified_received"])],
+          ["Outstanding", _inr_plain(d["outstanding"]), "Awaiting Verification", _inr_plain(d["awaiting_verification"])],
+          ["Next Due", _inr_plain(d["next_due"]) if d["next_due"] is not None else "—", "Next Due Date", str(d["next_due_date"])]]
+    t = Table(sm, colWidths=[W * 0.22, W * 0.28, W * 0.26, W * 0.24])
+    t.setStyle(TableStyle([
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 9.5),
+        ("FONT", (0, 0), (0, -1), "Helvetica-Bold", 9.5), ("FONT", (2, 0), (2, -1), "Helvetica-Bold", 9.5),
+        ("TEXTCOLOR", (0, 0), (0, -1), MUTE), ("TEXTCOLOR", (2, 0), (2, -1), MUTE),
+        ("FONT", (1, 0), (1, -1), "Helvetica-Bold", 9.5), ("FONT", (3, 0), (3, -1), "Helvetica-Bold", 9.5),
+        ("BACKGROUND", (0, 0), (-1, -1), CREAM),
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER), ("INNERGRID", (0, 0), (-1, -1), 0.4, BORDER),
+        ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7)]))
+    story.append(t)
+
+    def money_table(title, header, rows, aligns=None, widths=None):
+        story.append(H(title))
+        if not rows:
+            story.append(Paragraph("No data.", small)); return
+        data = [header] + rows
+        tt = Table(data, colWidths=widths, repeatRows=1)
+        st = [("BACKGROUND", (0, 0), (-1, 0), OLIVE), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+              ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.5),
+              ("FONT", (0, 1), (-1, -1), "Helvetica", 8.5),
+              ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, CREAM]),
+              ("BOX", (0, 0), (-1, -1), 0.5, BORDER), ("INNERGRID", (0, 0), (-1, -1), 0.3, BORDER),
+              ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+              ("TOPPADDING", (0, 0), (-1, -1), 4.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 4.5),
+              ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6)]
+        for col in (aligns or []):
+            st.append(("ALIGN", (col, 0), (col, -1), "RIGHT"))
+        tt.setStyle(TableStyle(st))
+        story.append(tt)
+
+    # Component Structure
+    money_table("Component Structure",
+                ["Component", "Amount", "Verified Received", "Balance"],
+                [[c["label"], _inr_plain(c["amount"]), _inr_plain(c["verified"]), _inr_plain(c["balance"])]
+                 for c in d["components"]],
+                aligns=[1, 2, 3], widths=[W * 0.40, W * 0.20, W * 0.20, W * 0.20])
+
+    # Payment Plan
+    money_table("Payment Plan",
+                ["Installment", "Due Date", "Expected", "Received", "Balance", "Status"],
+                [[p["installment"], str(p["due"]), _inr_plain(p["expected"]), _inr_plain(p["received"]),
+                  _inr_plain(p["balance"]), p["status"].title()] for p in d["plan"]],
+                aligns=[2, 3, 4], widths=[W * 0.26, W * 0.16, W * 0.15, W * 0.15, W * 0.15, W * 0.13])
+
+    # Actual Payment History
+    money_table("Actual Payment History",
+                ["Received Date", "Amount", "Components", "Mode", "Payment Head", "Verification"],
+                [[str(h["date"]), _inr_plain(h["amount"]), h["components"], h["mode"], h["head"],
+                  h["verification_status"].title()] for h in d["history"]],
+                aligns=[1], widths=[W * 0.15, W * 0.15, W * 0.26, W * 0.13, W * 0.16, W * 0.15])
+
+    # Pending Details
+    story.append(H("Pending Details"))
+    story.append(Paragraph(f"<b>Outstanding:</b> {_inr_plain(d['outstanding'])} &nbsp;&nbsp; "
+                           f"<b>Awaiting Verification:</b> {_inr_plain(d['awaiting_verification'])}", small))
+    if d["expected_remaining"]:
+        story.append(Spacer(1, 3))
+        story.append(Paragraph("Expected remaining payments (from partial payments):", small))
+        for e in d["expected_remaining"]:
+            story.append(Paragraph(f"• {_inr_plain(e['amount'])} expected by {e['date'] or '—'}", small))
+    if d["upcoming"]:
+        story.append(Spacer(1, 3))
+        story.append(Paragraph("Upcoming dues:", small))
+        for u in d["upcoming"]:
+            story.append(Paragraph(f"• {u['installment']} — {_inr_plain(u['balance'])} due {u['due'] or '—'}", small))
+
+    story += [Spacer(1, 14), HRFlowable(width="100%", color=BORDER, thickness=0.6), Spacer(1, 4),
+              Paragraph(f"Generated {datetime.now(timezone.utc).strftime('%d %b %Y')} · Verified figures reflect Accounts-confirmed receipts only.",
+                        ParagraphStyle("f", fontName="Helvetica-Oblique", fontSize=7.5, textColor=MUTE))]
+    doc.build(story)
+    return buf.getvalue()
+
+
+@api.get("/units/{unit_id}/payment-report")
+async def download_payment_report(unit_id: str,
+                                  user: User = Depends(require_section("sales", "admin", "accounts", "post_sales"))):
+    data = await _plot_report_data(unit_id)
+    pdf = _build_report_pdf(data)
+    safe = "".join(ch for ch in str(data["plot_number"]) if ch.isalnum() or ch in "-_") or "plot"
+    from fastapi.responses import Response
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="Payment_Report_{safe}.pdf"'})
+
+
+
 @api.get("/payments/verifications")
 async def payment_verifications(status: Optional[str] = None,
                                  user: User = Depends(require_section("sales", "accounts", "admin"))):
@@ -1850,11 +2104,58 @@ async def dashboard(user: User = Depends(get_current_user)):
         my_value = await _sum_field(db.units, {"status": "sold", "sold_by": user.user_id}, "final_price")
         recent_sales = await db.units.find(
             {"status": "sold"}, {"_id": 0}).sort("sold_at", -1).limit(8).to_list(8)
+        # compact Collections widget data (§7/§34): one row per schedule installment of sold plots
+        sold_units = {u["unit_id"]: u for u in await db.units.find(
+            {"status": "sold"}, {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1, "project_id": 1}).to_list(5000)}
+        pnames = {p["project_id"]: p["name"] for p in await db.projects.find(
+            {}, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)}
+        collections = []
+        async for p in db.payments.find({}, {"_id": 0}):
+            u = sold_units.get(p["unit_id"])
+            if not u:
+                continue
+            receipts = p.get("receipts", [])
+            received = round(sum(_num(r.get("amount")) for r in receipts if r.get("verification_status") == "verified"), 2)
+            awaiting = round(sum(_num(r.get("amount")) for r in receipts if r.get("verification_status") == "pending"), 2)
+            returned = any(r.get("verification_status") == "returned" for r in receipts)
+            exp = round(_num(p.get("amount")), 2)
+            due = p.get("due_date")
+            if returned:
+                verification = "returned"
+            elif awaiting > 0:
+                verification = "awaiting"
+            elif received >= exp - 0.01 and exp > 0:
+                verification = "verified"
+            else:
+                verification = "none"
+            if p.get("status") == "received":
+                coll_status = "received"
+            elif received > 0:
+                coll_status = "partial"
+            elif due and due < today:
+                coll_status = "overdue"
+            elif due and due == today:
+                coll_status = "due_today"
+            else:
+                coll_status = "upcoming"
+            expected_remaining = next((r.get("expected_remaining_date") for r in receipts
+                                       if r.get("expected_remaining_date") and r.get("verification_status") in ("pending", "verified")), None)
+            collections.append({
+                "payment_id": p.get("payment_id"), "unit_id": p["unit_id"],
+                "plot_number": u.get("plot_number"), "buyer_name": u.get("buyer_name") or "—",
+                "project_name": pnames.get(u.get("project_id"), ""),
+                "installment": p.get("notes") or f"Instalment {p.get('seq')}",
+                "due_amount": exp, "due_date": due, "received": received, "awaiting": awaiting,
+                "balance": round(exp - received, 2), "status": coll_status, "verification": verification,
+                "expected_remaining_date": expected_remaining,
+            })
+        collections.sort(key=lambda c: (c["due_date"] or "z", _plot_key(c["plot_number"] or "")))
         base.update({
             "sales_booked": sales_booked,
             "my_sales_count": my_sales,
             "my_sales_value": my_value,
             "recent_sales": recent_sales,
+            "collections": collections,
             "by_project": by_project,
             "consolidated": consolidated,
         })

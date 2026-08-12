@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 19: Validated (1) PDF Payment Report download and (2) Post Sales Collections widget. All 6 pytest cases pass (4 PDF role checks + 2 collections payload checks). Playwright verified UI end-to-end: collections widget renders with all 7 filter chips, 'Awaiting Verification' filter correctly narrows to Plot 32 Instalment 1 (Rs 2,00,000 awaiting, verification=Awaiting, status=Overdue), and action link routes to /sales. PlotDrilldown modal 'Download Payment Report' button triggered a genuine PDF download (%PDF magic bytes, ~108KB, filename Payment_Report_32.pdf) for post_sales, admin, AND accounts roles with zero error toasts. Regression: modal shows Booking (Verified), Instalment 1 (Pending w/ Awaiting verification + YES/NO buttons visible for verifiers), and Instalment 2 (Pending) — the maker-checker pipeline is intact. Demo booking cleanup performed as requested (Admin cancel + Mongo delete of 1 cancellation + 8 notifications; unit_8077ee366ecf is now status=available, 0 payments).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_payment_report_and_collections.py",
+    "/app/test_reports/pytest/iter19_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py GET /units/{unit_id}/payment-report correctly gates via require_section(sales,admin,accounts,post_sales) and returns Response(media_type=application/pdf) with Content-Disposition attachment. Content builds via reportlab _build_report_pdf.",
+    "PostSalesDashboard collections widget uses clean derivation (verified/awaiting/returned) matched against maker-checker semantics; only verified amounts contribute to `received`, pending amounts flow into `awaiting` — consistent with backend dashboard payload.",
+    "Login response uses `access_token` key (not `token`); prior test template implied `token` — call this out for future test harness reuse.",
+    "cancel endpoint requires `cancel_date` + optional `amount_refunded`; not obvious from route signature — consider adding an example in OpenAPI docs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_payment_report_and_collections.py"
+  ],
+  "success_rate": { "backend": "6/6 (100%)", "frontend": "3/3 role downloads + widget render + filter + action link (100%)" },
+  "test_credentials": "Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123, Admin 9513242807/Repro@123 (all pre-seeded).",
+  "seed_data_creation": "None. Used the pre-seeded demo booking (CVF Plot 32 / Ravi Kumar). Per main agent's instruction, cancelled that booking + deleted cancellation & 8 notifications at end of run; unit_8077ee366ecf is now available with 0 payments. Main agent must re-seed the demo booking if further iterations depend on it.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reusable regression: /app/backend/tests/test_payment_report_and_collections.py covers PDF download (multi-role) and collections widget payload. NOTE: it depends on demo booking existing (CVF Plot 32 sold to Ravi Kumar with the specific 3-instalment schedule); after iteration 19 cleanup the demo was removed, so this test file will fail until the main agent re-seeds the booking. Frontend selectors used: [data-testid=collections-widget], [data-testid^=collections-filter-<key>], [data-testid^=collections-row-<pid>], [data-testid^=collections-action-<pid>], [data-testid^=download-report-<unit_id>]. All present and working. Login form uses two <input> elements (phone, password) and a 'Sign in' button — no data-testid on login inputs."
+}

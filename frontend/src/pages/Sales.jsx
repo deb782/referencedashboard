@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck } from "lucide-react";
-import { api, apiError } from "@/lib/api";
+import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download } from "lucide-react";
+import { api, apiError, downloadFile } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { PageHeader, StatusPill, EmptyState, SectionCard, Modal, inr } from "@/components/ui";
 
@@ -254,11 +254,23 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
     } catch (e) { toast.error(apiError(e)); }
   };
 
+  const downloadReport = async () => {
+    try {
+      toast.info("Generating report…");
+      await downloadFile(`/units/${plot.unit_id}/payment-report`, `Payment_Report_${plot.plot_number}.pdf`);
+    } catch (e) { toast.error(apiError(e)); }
+  };
+
   return (
     <Modal size="xl" title={`Plot ${plot.plot_number} · ${plot.buyer_name || ""}`}
       subtitle={`Billed ${inr(billed)} · Verified received ${inr(paid)} · Awaiting ${inr(awaiting)} · Official balance ${inr(billed - paid)}`}
       onClose={onClose}
-      footer={<button onClick={onClose} className="btn-secondary">Close</button>}>
+      footer={<div className="flex items-center justify-between w-full gap-2">
+        <button onClick={downloadReport} className="btn-secondary" data-testid={`download-report-${plot.unit_id}`}>
+          <Download className="w-4 h-4" /> Download Payment Report
+        </button>
+        <button onClick={onClose} className="btn-secondary">Close</button>
+      </div>}>
       <div className="space-y-3">
         {rows.map((r) => {
           const bal = round2(Number(r.amount) - Number(r.paid_amount || 0));

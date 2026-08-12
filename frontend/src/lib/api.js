@@ -37,3 +37,13 @@ export function fileUrl(fileId) {
   const token = localStorage.getItem("token");
   return `${API_BASE}/api/files/${fileId}/download?token=${encodeURIComponent(token || "")}`;
 }
+
+export async function downloadFile(path, filename) {
+  const res = await api.get(path, { responseType: "blob" });
+  const url = window.URL.createObjectURL(
+    new Blob([res.data], { type: res.headers["content-type"] || "application/pdf" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  window.URL.revokeObjectURL(url);
+}
