@@ -1,0 +1,53 @@
+{
+  "summary": "E2E test of the new Management role feature. 8 of the 9 scenarios PASS end-to-end. One CRITICAL frontend bug found that blocks the entire Management procurement primary-approval flow via UI: Procurement.jsx does not render any Review button for role='management' on requests in 'pending_management' / 'management_clarification' status, so a Management user can SEE the request in the Active Queue but cannot approve/reject/clarify it from the UI. Backend endpoint POST /procurement/{id}/mgmt-action works (already curl-verified by main agent). Also found a branding regression: /login and /reset-password screens still show 'Agrocorp Lite' (see screenshot); only the sidebar shows the new 'Management Dashboard / Stakeholder Console' copy. All other tested flows are green.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "pages/Procurement.jsx (RequestList row buttons, ~line 96-105)",
+        "issue": "Review button is only rendered when user?.role === 'admin' && status ∈ [pending_admin, pending_clarification]. There is NO condition for user.role === 'management' && status ∈ [pending_management, management_clarification]. Result: a Management user on /procurement sees the row (proc-row-<id>) with pill 'Awaiting Management' but no Review button at all. The ActionDialog itself already correctly switches endpoint via isMgmt at line 205-206, so the fix is only the render condition + adding data-testid=`mgmt-review-<id>` as spec'd in the review request.",
+        "selector": "[data-testid=\"mgmt-review-<request_id>\"] (expected but MISSING)",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "pages/Login.jsx and pages/ResetPassword.jsx",
+        "issue": "Branding regression: both screens still render 'Agrocorp Lite' logo + text. Task said login shows company logos and new 'Management Dashboard / Stakeholder Console' copy. Only Layout.jsx sidebar was updated. See screenshot captured during first-login reset flow.",
+        "selector": "login page header / reset-password page header",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Management PRIMARY approval of procurement (Site Manager -> Management -> Admin -> Accounts)",
+        "issue": "Cannot be completed via UI because of the missing Review button above. Steps (a),(b),(c) blocked: Site Manager raise -> pending_management works; Management sees the request; but cannot approve/reject/clarify via UI. mgmt-action backend endpoint itself is fine per prior curl tests.",
+        "affected_selectors": ["mgmt-review-<request_id>", "act-approve", "act-reject", "act-clarify", "act-submit"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/mgmt_e2e_test.py"
+  ],
+  "action_items": [
+    "Fix Procurement.jsx row render: add {user?.role === 'management' && ['pending_management','management_clarification'].includes(r.status) && (<button onClick={() => onAction(r)} data-testid={`mgmt-review-${r.request_id}`} className=\"btn-secondary text-xs py-1.5\">Review</button>)} next to the existing admin Review button. ActionDialog already handles endpoint switching.",
+    "Update /login (Login.jsx) and /reset-password (ResetPassword.jsx) branding: replace 'Agrocorp Lite' logo/wordmark with 'Management Dashboard' / 'Stakeholder Console' + company logos as required by the spec.",
+    "After UI fix, re-verify full mgmt approve -> pending_admin -> admin approve -> approved -> accounts issue PO chain via UI."
+  ],
+  "critical_code_review_comments": [
+    "Procurement.jsx line 97: role condition too narrow — missing management branch. This is the only blocker; everything else (backend, dashboard, sidebar filter, route guards, view-only sales, access modal, permissions persistence) is correctly implemented.",
+    "Login.jsx / ResetPassword.jsx branding not aligned with the rest of the app; consolidate branding constants to lib/auth.jsx (already has ROLE_LABELS + MGMT_SECTIONS).",
+    "server.py list_projects: management users are correctly scoped to project_id even without a permissions check on 'projects' — consider adding _mgmt_gate(user, 'projects') for consistency with units/sales/procurement gating (currently permissive because ManagementDashboard reads /projects for pivots).",
+    "Users.jsx AccessModal has no way to see current permissions state before opening (badge on row). Nice-to-have."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (frontend-focused; backend already curl-verified by main agent, and my API-level checks for /procurement status routing all passed: pending_management with mgmt user, pending_admin without)",
+    "frontend": "8/9 scenarios PASS. 1 CRITICAL blocker (mgmt-review button) + 1 MEDIUM branding regression on /login and /reset-password."
+  },
+  "test_credentials": "Admin 9513242807/Repro@123. During test created TEST_MgmtCVF 9000000003 (management, proj CVF, perms=procurement+sales, pwd Pass@1234) and TEST_SiteCVF 9000000004 (site_manager, proj CVF, pwd Pass@1234). Both DELETED at end.",
+  "seed_data_creation": "Created 2 test users (deleted), 2 test procurement docs TEST_MgmtFlow & TEST_NoMgmtFlow (deleted via direct Mongo since no DELETE endpoint), and their 2 notifications (deleted). Final DB state clean: sold=0, payments=0, procurement=0.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The ONLY UI change needed to unblock the flow is adding a management-scoped Review button in Procurement.jsx (data-testid=`mgmt-review-<request_id>`) plus updating Login/ResetPassword branding. All other testids in the review request (perm-<section>, access-<user_id>, access-perm-<section>, access-save, mgmt-project-badge, mgmt-approvals-kpi, dash-project-<id>, dashboard-page) are already implemented and working. After the fix, full retest steps: (1) admin create TEST_MgmtCVF (mgmt, CVF, perms=procurement,sales) + TEST_SiteCVF; (2) SM POST /api/procurement -> pending_management; (3) mgmt login (reset pwd), /procurement, click mgmt-review-<id>, act-approve+act-submit -> expect status='pending_admin'; (4) admin review-<id> approve -> 'approved'; (5) accounts po-<id> issue PO. Delete users + direct mongo delete procurement + notifications at end.",
+  "rca_of_the_issue": "Root cause of the mgmt Review-button bug: while adding the management role, the render condition on Procurement.jsx line 97 was written for admin only (`user?.role === 'admin' && ['pending_admin','pending_clarification'].includes(r.status)`). The developer added the ActionDialog isMgmt branch (line 205) that hits /mgmt-action for pending_management statuses, but forgot to expose an entry point (button) for the management role. Reproduction: login as mgmt user with procurement perm, navigate to /procurement — the row exists but no Review button. Mitigation: add a second render block gated on `user?.role === 'management' && ['pending_management','management_clarification'].includes(r.status)` with testid `mgmt-review-<request_id>`. Root cause of branding regression: Login.jsx and ResetPassword.jsx still hardcode 'Agrocorp Lite' logo/wordmark; only Layout.jsx was updated."
+}

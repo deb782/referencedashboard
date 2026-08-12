@@ -5,6 +5,7 @@ import AdminDashboard from "./dashboards/AdminDashboard";
 import PostSalesDashboard from "./dashboards/PostSalesDashboard";
 import AccountsDashboard from "./dashboards/AccountsDashboard";
 import SiteManagerDashboard from "./dashboards/SiteManagerDashboard";
+import ManagementDashboard from "./dashboards/ManagementDashboard";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -24,6 +25,7 @@ export default function Dashboard() {
     case "post_sales": return <PostSalesDashboard {...props} />;
     case "accounts": return <AccountsDashboard {...props} />;
     case "site_manager": return <SiteManagerDashboard {...props} />;
+    case "management": return <ManagementDashboard {...props} />;
     default: return <div className="text-ink2" data-testid="dashboard-page">Loading…</div>;
   }
 }

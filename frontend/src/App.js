@@ -11,7 +11,7 @@ import Sales from "@/pages/Sales";
 import Inventory from "@/pages/Inventory";
 import Procurement from "@/pages/Procurement";
 
-function Protected({ children, roles }) {
+function Protected({ children, roles, section }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="p-12 text-center text-stone-500">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
@@ -19,6 +19,9 @@ function Protected({ children, roles }) {
     return <Navigate to="/reset-password" replace />;
   }
   if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />;
+  if (user.role === "management" && section && !(user.permissions || []).includes(section)) {
+    return <Navigate to="/dashboard" replace />;
+  }
   return <Layout>{children}</Layout>;
 }
 
@@ -30,13 +33,13 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
-        <Route path="/projects" element={<Protected roles={["admin"]}><Projects /></Protected>} />
-        <Route path="/users" element={<Protected roles={["admin"]}><UsersPage /></Protected>} />
+        <Route path="/projects" element={<Protected roles={["admin","management"]} section="projects"><Projects /></Protected>} />
+        <Route path="/users" element={<Protected roles={["admin","management"]} section="users"><UsersPage /></Protected>} />
         <Route path="/team" element={<Navigate to="/users" replace />} />
-        <Route path="/units" element={<Protected roles={["admin","post_sales"]}><Units /></Protected>} />
-        <Route path="/sales" element={<Protected roles={["admin","post_sales","accounts"]}><Sales /></Protected>} />
-        <Route path="/inventory" element={<Protected roles={["admin","site_manager"]}><Inventory /></Protected>} />
-        <Route path="/procurement" element={<Protected roles={["admin","site_manager","accounts"]}><Procurement /></Protected>} />
+        <Route path="/units" element={<Protected roles={["admin","post_sales","management"]} section="units"><Units /></Protected>} />
+        <Route path="/sales" element={<Protected roles={["admin","post_sales","accounts","management"]} section="sales"><Sales /></Protected>} />
+        <Route path="/inventory" element={<Protected roles={["admin","site_manager","management"]} section="inventory"><Inventory /></Protected>} />
+        <Route path="/procurement" element={<Protected roles={["admin","site_manager","accounts","management"]} section="procurement"><Procurement /></Protected>} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AuthProvider>

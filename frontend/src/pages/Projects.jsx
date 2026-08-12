@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Building2, MapPin, Home, IndianRupee, Check } from "lucide-react";
 import { api, apiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { PageHeader, EmptyState, Modal, inr } from "@/components/ui";
 const emptyForm = { name: "", location: "", kind: "", site_manager_id: "" };
 
 export default function Projects() {
+  const { user } = useAuth();
+  const readOnly = user?.role === "management";
   const [rows, setRows] = useState([]);
   const [users, setUsers] = useState([]);
   const [counts, setCounts] = useState({});
@@ -13,8 +16,9 @@ export default function Projects() {
   const [form, setForm] = useState(emptyForm);
 
   const load = async () => {
-    const [p, u, d] = await Promise.all([api.get("/projects"), api.get("/users"), api.get("/dashboard")]);
-    setRows(p.data); setUsers(u.data);
+    const [p, d] = await Promise.all([api.get("/projects"), api.get("/dashboard")]);
+    setRows(p.data);
+    try { const u = await api.get("/users"); setUsers(u.data); } catch { setUsers([]); }
     const map = {};
     (d.data?.by_project || []).forEach(bp => { map[bp.project_id] = bp; });
     setCounts(map);
@@ -43,9 +47,11 @@ export default function Projects() {
   return (
     <div data-testid="projects-page">
       <PageHeader overline="Portfolio" title="Projects" subtitle="Set each project's sale rate and see who's catering to its inventory.">
-        <button onClick={() => setShowForm(true)} className="btn-primary" data-testid="new-project-btn">
-          <Plus className="w-4 h-4" /> New project
-        </button>
+        {!readOnly && (
+          <button onClick={() => setShowForm(true)} className="btn-primary" data-testid="new-project-btn">
+            <Plus className="w-4 h-4" /> New project
+          </button>
+        )}
       </PageHeader>
 
       {rows.length === 0 ? (
@@ -54,7 +60,7 @@ export default function Projects() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {rows.map((p, i) => (
             <ProjectCard key={p.project_id} p={p} idx={i} count={counts[p.project_id]}
-              admins={admins} postSales={postSales} onDelete={remove} onSaved={load} />
+              admins={admins} postSales={postSales} onDelete={remove} onSaved={load} readOnly={readOnly} />
           ))}
         </div>
       )}
@@ -116,7 +122,7 @@ function ProjectCard({ p, idx, count, admins, postSales, onDelete, onSaved }) {
             {p.kind || "Project"}{p.location ? ` · ${p.location}` : ""}
           </div>
         </div>
-        <button onClick={() => onDelete(p)} className="text-ink2 hover:text-bad transition-colors duration-200" title="Delete project" data-testid={`del-project-${p.project_id}`}>
+        <button onClick={() => onDelete(p)} className={`text-ink2 hover:text-bad transition-colors duration-200 ${readOnly ? "hidden" : ""}`} title="Delete project" data-testid={`del-project-${p.project_id}`}>
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
@@ -128,13 +134,15 @@ function ProjectCard({ p, idx, count, admins, postSales, onDelete, onSaved }) {
           <div className="flex items-center gap-2 mt-1">
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink2 text-sm">₹</span>
-              <input type="number" min="0" value={rate} onChange={(e) => setRate(e.target.value)}
-                className="input font-mono-num pl-7" data-testid={`rate-input-${p.project_id}`} placeholder="0" />
+              <input type="number" min="0" value={rate} onChange={(e) => setRate(e.target.value)} disabled={readOnly}
+                className="input font-mono-num pl-7 disabled:opacity-60" data-testid={`rate-input-${p.project_id}`} placeholder="0" />
             </div>
-            <button onClick={saveRate} disabled={busy || !dirty}
-              className="btn-primary text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed" data-testid={`rate-save-${p.project_id}`}>
-              {busy ? "Saving…" : <><Check className="w-3.5 h-3.5" /> Save</>}
-            </button>
+            {!readOnly && (
+              <button onClick={saveRate} disabled={busy || !dirty}
+                className="btn-primary text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed" data-testid={`rate-save-${p.project_id}`}>
+                {busy ? "Saving…" : <><Check className="w-3.5 h-3.5" /> Save</>}
+              </button>
+            )}
           </div>
           <div className="text-[11px] text-ink2 mt-1.5">Per-sq.ft rate used for this project's inventory pricing.</div>
         </div>

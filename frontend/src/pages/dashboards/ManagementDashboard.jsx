@@ -1,54 +1,64 @@
 import { Link } from "react-router-dom";
-import { Building2, Home, HandCoins, Package, Users, TrendingUp, ArrowUpRight, Layers } from "lucide-react";
-import { PageHeader, Kpi, StatusPill, SectionCard, EmptyState, inr } from "@/components/ui";
+import { Building2, Package, ArrowUpRight, Layers, ShieldCheck } from "lucide-react";
+import { PageHeader, StatusPill, SectionCard, EmptyState, inr } from "@/components/ui";
 
-export default function AdminDashboard({ stats, user }) {
+export default function ManagementDashboard({ stats, user }) {
   const s = stats || {};
   const projects = s.by_project || [];
-  const con = s.consolidated || {};
   const approvals = s.procurement_approvals || [];
+  const perms = s.permissions || user?.permissions || [];
+  const canProc = perms.includes("procurement");
 
   return (
     <div data-testid="dashboard-page">
-      <PageHeader overline="Command Center"
+      <PageHeader overline="Management · Stakeholder Console"
         title={`Good to see you, ${user?.name?.split(" ")[0]}`}
         subtitle="Real-time visibility into financial, operational, sales, and project performance.">
-        <Link to="/units" className="btn-secondary" data-testid="dash-units"><Home className="w-4 h-4" /> Units</Link>
-        <Link to="/projects" className="btn-primary" data-testid="dash-projects"><Building2 className="w-4 h-4" /> Projects</Link>
+        <span className="pill" style={{ color: "#5a6b10", backgroundColor: "#5a6b1010", borderColor: "#5a6b1022" }} data-testid="mgmt-project-badge">
+          <Building2 className="w-3.5 h-3.5" /> {s.project_name || "Assigned project"}
+        </span>
       </PageHeader>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-        <Kpi label="Projects" value={con.projects ?? 0} icon={Building2} tone="ink" className="ag-rise" mono={false} />
-        <Kpi label="Team Members" value={s.team_members ?? 0} icon={Users} tone="ink" className="ag-rise ag-rise-1" mono={false} />
-        <Kpi label="Procurement Queue" value={s.procurement_pending ?? 0} icon={Package} tone="clay" accent="#a8763f" className="ag-rise ag-rise-2" mono={false} />
-        <Kpi label="Procurement Paid" value={s.procurement_paid ?? 0} icon={HandCoins} tone="ok" className="ag-rise ag-rise-3" mono={false} />
-      </div>
+      {canProc && (
+        <div className="mb-6">
+          <div className="card p-5 flex items-center justify-between ag-rise" data-testid="mgmt-approvals-kpi">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-sm bg-clay/10 flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-clay" /></div>
+              <div>
+                <div className="overline">Awaiting your primary approval</div>
+                <div className="font-display font-extrabold text-2xl text-ink font-mono-num">{s.mgmt_approvals_pending ?? 0}</div>
+              </div>
+            </div>
+            <Link to="/procurement" className="btn-primary text-sm" data-testid="mgmt-go-procurement">Review requests <ArrowUpRight className="w-4 h-4" /></Link>
+          </div>
+        </div>
+      )}
 
-      {/* Per-project pivots — two columns */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {projects.map((p, i) => <ProjectPivot key={p.project_id} p={p} idx={i} />)}
-        {projects.length === 0 && <div className="xl:col-span-2"><EmptyState icon={Building2} title="No projects yet" hint="Create projects and upload inventory to see live pivots." /></div>}
+        {projects.length === 0 && <div className="xl:col-span-2"><EmptyState icon={Building2} title="No project data yet" hint="Once inventory is uploaded for your project, live pivots appear here." /></div>}
       </div>
 
-      {/* Procurement queue + Site bills */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-        <SectionCard title="Procurement · Needs Action"
-          action={<Link to="/procurement" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1">Review all <ArrowUpRight className="w-3.5 h-3.5" /></Link>}>
-          {approvals.length === 0 ? (
-            <EmptyState icon={Package} title="Queue is clear" hint="No procurement requests waiting on you." />
-          ) : (
-            <div className="divide-y divide-agborder">
-              {approvals.map((p) => (
-                <Link to="/procurement" key={p.request_id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surfacealt transition-colors duration-200">
-                  <div className="text-sm font-semibold text-ink truncate">{p.subject}</div>
-                  <div className="flex items-center gap-3"><StatusPill status={p.priority} /><StatusPill status={p.status} /></div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </SectionCard>
+        {canProc && (
+          <SectionCard title="Procurement · Needs Your Approval"
+            action={<Link to="/procurement" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1">Review all <ArrowUpRight className="w-3.5 h-3.5" /></Link>}>
+            {approvals.length === 0 ? (
+              <EmptyState icon={Package} title="Queue is clear" hint="No requests waiting on your primary approval." />
+            ) : (
+              <div className="divide-y divide-agborder">
+                {approvals.map((p) => (
+                  <Link to="/procurement" key={p.request_id} className="flex items-center justify-between px-5 py-3.5 hover:bg-surfacealt transition-colors duration-200">
+                    <div className="text-sm font-semibold text-ink truncate">{p.subject}</div>
+                    <div className="flex items-center gap-3"><StatusPill status={p.priority} dot={false} /><StatusPill status={p.status} /></div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        )}
 
-        <SectionCard title={`Site Bills · PO Payments`}
+        <SectionCard title="Site Bills · PO Payments"
           action={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(s.site_bills?.pending)}</b> · Paid <b className="text-ok">{inr(s.site_bills?.paid)}</b></span>}>
           {!(s.site_bills?.milestones || []).length ? (
             <EmptyState icon={Package} title="No PO milestones" hint="Payment structures set by accounts show here." />
@@ -70,15 +80,6 @@ export default function AdminDashboard({ stats, user }) {
           )}
         </SectionCard>
       </div>
-    </div>
-  );
-}
-
-function Big({ label, value, tone }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-[0.14em] text-ink2 font-bold">{label}</div>
-      <div className={`font-display font-extrabold tracking-tight text-2xl md:text-3xl mt-1.5 font-mono-num ${tone}`}>{value}</div>
     </div>
   );
 }

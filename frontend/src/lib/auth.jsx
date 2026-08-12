@@ -57,6 +57,17 @@ export const ROLE_LABELS = {
   accounts: "Accounts",
   post_sales: "Post-Sales Rep",
   site_manager: "Site Manager",
+  management: "Management",
 };
+
+// Sections an admin can grant to a Management user
+export const MGMT_SECTIONS = [
+  { key: "projects", label: "Projects" },
+  { key: "users", label: "Team" },
+  { key: "units", label: "Units" },
+  { key: "sales", label: "Sales & Payments" },
+  { key: "inventory", label: "Inventory" },
+  { key: "procurement", label: "Procurement" },
+];
 
 export const can = (user, ...roles) => user && roles.includes(user.role);

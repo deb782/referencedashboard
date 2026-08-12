@@ -2,20 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Building2, Users, Home as HomeIcon,
-  HandCoins, Package, Boxes, Bell, LogOut, ChevronDown, Sprout, Menu, X,
+  HandCoins, Package, Boxes, Bell, LogOut, ChevronDown, Menu, X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth, ROLE_LABELS } from "@/lib/auth";
 import GlobalSearch from "@/components/GlobalSearch";
 
 const NAV = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin","accounts","post_sales","site_manager"] },
-  { to: "/projects", label: "Projects", icon: Building2, roles: ["admin"] },
-  { to: "/users", label: "Team", icon: Users, roles: ["admin"] },
-  { to: "/units", label: "Units", icon: HomeIcon, roles: ["admin","post_sales"] },
-  { to: "/sales", label: "Sales & Payments", icon: HandCoins, roles: ["admin","post_sales","accounts"] },
-  { to: "/inventory", label: "Inventory", icon: Boxes, roles: ["admin","site_manager"] },
-  { to: "/procurement", label: "Procurement", icon: Package, roles: ["admin","site_manager","accounts"] },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin","accounts","post_sales","site_manager","management"] },
+  { to: "/projects", label: "Projects", icon: Building2, roles: ["admin","management"], section: "projects" },
+  { to: "/users", label: "Team", icon: Users, roles: ["admin","management"], section: "users" },
+  { to: "/units", label: "Units", icon: HomeIcon, roles: ["admin","post_sales","management"], section: "units" },
+  { to: "/sales", label: "Sales & Payments", icon: HandCoins, roles: ["admin","post_sales","accounts","management"], section: "sales" },
+  { to: "/inventory", label: "Inventory", icon: Boxes, roles: ["admin","site_manager","management"], section: "inventory" },
+  { to: "/procurement", label: "Procurement", icon: Package, roles: ["admin","site_manager","accounts","management"], section: "procurement" },
 ];
 
 function timeAgo(iso) {
@@ -53,7 +53,8 @@ export default function Layout({ children }) {
 
   const unread = notifs.filter(n => !n.is_read).length;
   const markAll = async () => { await api.post("/notifications/read-all"); load(); };
-  const items = NAV.filter(n => n.roles.includes(user?.role));
+  const items = NAV.filter(n => n.roles.includes(user?.role)
+    && (user?.role !== "management" || !n.section || (user?.permissions || []).includes(n.section)));
   const initials = (user?.name || "?").split(" ").map(x => x[0]).slice(0, 2).join("").toUpperCase();
 
   return (
@@ -66,12 +67,12 @@ export default function Layout({ children }) {
       {/* Sidebar */}
       <aside className={`fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-agborder flex flex-col z-50 transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="h-16 flex items-center gap-3 px-5 border-b border-agborder">
-          <div className="w-9 h-9 rounded-sm bg-brand flex items-center justify-center shrink-0">
-            <Sprout className="w-5 h-5 text-white" strokeWidth={2.2} />
+          <div className="w-9 h-9 rounded-sm bg-white border border-agborder flex items-center justify-center shrink-0 overflow-hidden">
+            <img src="/agrocorp-logo.webp" alt="Agrocorp" className="w-full h-full object-contain p-0.5" />
           </div>
-          <div className="leading-tight flex-1">
-            <div className="font-display font-extrabold text-ink tracking-tight">Agrocorp</div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-ink2 font-semibold">Lite Console</div>
+          <div className="leading-tight flex-1 min-w-0">
+            <div className="font-display font-extrabold text-ink tracking-tight text-sm truncate">Management Dashboard</div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-ink2 font-semibold">Stakeholder Console</div>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="lg:hidden w-8 h-8 rounded-sm hover:bg-surfacealt flex items-center justify-center" data-testid="sidebar-close">
             <X className="w-5 h-5 text-ink2" />

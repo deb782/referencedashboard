@@ -62,6 +62,8 @@ const STATUS_STYLES = {
   overdue: { c: "#a33b28", label: "Overdue" },
   pending_admin: { c: "#c8912f", label: "Awaiting Admin" },
   pending_clarification: { c: "#a8763f", label: "Needs Clarification" },
+  pending_management: { c: "#c8912f", label: "Awaiting Management" },
+  management_clarification: { c: "#a8763f", label: "Needs Clarification" },
   approved: { c: "#5a6b10", label: "Approved" },
   po_issued: { c: "#3d4a0a", label: "PO Issued" },
   paid: { c: "#3d4a0a", label: "Paid" },

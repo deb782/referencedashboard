@@ -23,13 +23,14 @@ export default function Procurement() {
   const projName = (id) => projects.find(p => p.project_id === id)?.name || "—";
 
   const buckets = useMemo(() => ({
-    active: rows.filter(r => ["pending_admin", "pending_clarification", "approved", "po_issued"].includes(r.status)),
+    active: rows.filter(r => ["pending_management", "management_clarification", "pending_admin", "pending_clarification", "approved", "po_issued"].includes(r.status)),
     done: rows.filter(r => ["paid", "rejected"].includes(r.status)),
   }), [rows]);
 
   const subtitle = {
-    site_manager: "Raise a request with a Performa Invoice → admin approves → accounts issue a PO you can download.",
-    admin: "Approve requests; accounts then issue POs and set the payment structure.",
+    site_manager: "Raise a request with a Performa Invoice → management & admin approve → accounts issue a PO you can download.",
+    management: "Give primary approval to site procurement requests. Approved requests move to Admin for final sign-off.",
+    admin: "Give final approval to requests; accounts then issue POs and set the payment structure.",
     accounts: "Approved → issue a PO (upload the document) → set milestone payment structure → mark milestones paid.",
   }[user?.role] || "";
 
@@ -77,6 +78,7 @@ function ProcList({ rows, projName, user, onAction, onPo, onMs }) {
           </div>
           <div className="text-xs text-ink2 mt-1">{projName(r.project_id)} · {(r.items || []).length} item(s) · Est. {inr(total(r))}{r.po_number ? ` · PO ${r.po_number}` : ""}</div>
           {r.admin_note && <div className="text-xs text-clay mt-1">Admin: {r.admin_note}</div>}
+          {r.mgmt_note && <div className="text-xs text-clay mt-1">Management: {r.mgmt_note}</div>}
           <div className="flex items-center gap-3 mt-2">
             {r.pi_file && <a href={fileUrl(r.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Performa Invoice</a>}
             {r.po_file && <a href={fileUrl(r.po_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`po-link-${r.request_id}`}><FileCheck2 className="w-3.5 h-3.5" /> Purchase Order</a>}
@@ -92,6 +94,9 @@ function ProcList({ rows, projName, user, onAction, onPo, onMs }) {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status) && (
+            <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`mgmt-review-${r.request_id}`}>Review</button>
+          )}
           {user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status) && (
             <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`review-${r.request_id}`}>Review</button>
           )}
@@ -200,8 +205,10 @@ function ActionDialog({ req, onClose, onSaved }) {
     if (action !== "approve" && !note.trim()) return toast.error("Please add a note");
     setBusy(true);
     try {
-      await api.post(`/procurement/${req.request_id}/action`, { action, note });
-      toast.success(action === "approve" ? "Approved" : action === "reject" ? "Rejected" : "Marked for clarification");
+      const isMgmt = ["pending_management", "management_clarification"].includes(req.status);
+      const url = isMgmt ? `/procurement/${req.request_id}/mgmt-action` : `/procurement/${req.request_id}/action`;
+      await api.post(url, { action, note });
+      toast.success(action === "approve" ? (isMgmt ? "Approved — sent to Admin" : "Approved") : action === "reject" ? "Rejected" : "Marked for clarification");
       onSaved();
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };

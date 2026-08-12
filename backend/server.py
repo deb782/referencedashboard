@@ -165,7 +165,10 @@ def make_token(user_id: str) -> str:
 
 
 # ----------------------------------------------------------------- models -
-Role = Literal["admin", "accounts", "post_sales", "site_manager"]
+Role = Literal["admin", "accounts", "post_sales", "site_manager", "management"]
+
+# sections a management user can be granted view/approve access to (admin-configurable)
+MGMT_SECTIONS = ["projects", "users", "units", "sales", "inventory", "procurement"]
 
 
 class User(BaseModel):
@@ -175,7 +178,8 @@ class User(BaseModel):
     phone: str
     email: Optional[EmailStr] = None
     role: Role
-    project_id: Optional[str] = None   # site_managers are scoped to one project
+    project_id: Optional[str] = None   # site_managers & management are scoped to one project
+    permissions: list = []             # sections a management user can access
     is_active: bool = True
     must_reset_password: bool = True
     created_at: str = Field(default_factory=now)
@@ -186,6 +190,12 @@ class UserCreate(BaseModel):
     phone: str
     email: Optional[EmailStr] = None
     role: Role
+    project_id: Optional[str] = None
+    permissions: Optional[list] = None
+
+
+class AccessUpdate(BaseModel):
+    permissions: List[str] = []
     project_id: Optional[str] = None
 
 
@@ -341,7 +351,8 @@ class ProcurementRequest(BaseModel):
     items: List[ProcurementItem]
     priority: Literal["low", "medium", "high", "urgent"] = "medium"
     notes: str = ""
-    status: Literal["pending_admin", "pending_clarification",
+    status: Literal["pending_management", "management_clarification",
+                    "pending_admin", "pending_clarification",
                     "approved", "rejected",
                     "po_issued", "paid"] = "pending_admin"
     requested_by: str
@@ -350,6 +361,9 @@ class ProcurementRequest(BaseModel):
     po_file: Optional[dict] = None          # Purchase Order (accounts)
     po_number: Optional[str] = None
     milestones: list = []                   # [{label,amount,due,status,paid_date,paid_amount,notes}]
+    mgmt_action_by: Optional[str] = None
+    mgmt_action_at: Optional[str] = None
+    mgmt_note: str = ""
     admin_action_by: Optional[str] = None
     admin_action_at: Optional[str] = None
     admin_note: str = ""
@@ -385,6 +399,11 @@ class ProcurementCreate(BaseModel):
 
 
 class AdminAction(BaseModel):
+    action: Literal["approve", "reject", "clarify"]
+    note: str = ""
+
+
+class MgmtAction(BaseModel):
     action: Literal["approve", "reject", "clarify"]
     note: str = ""
 
@@ -457,6 +476,24 @@ def require_roles(*roles: Role):
     return _dep
 
 
+def require_section(section: str, *roles: Role):
+    """Allow the given roles OR a management user that has `section` granted."""
+    async def _dep(user: User = Depends(get_current_user)) -> User:
+        if user.role == "management":
+            if section not in (user.permissions or []):
+                raise HTTPException(403, "Section not permitted for this account")
+            return user
+        if user.role not in roles:
+            raise HTTPException(403, f"Role {user.role} not permitted")
+        return user
+    return _dep
+
+
+def _mgmt_gate(user: User, section: str):
+    if user.role == "management" and section not in (user.permissions or []):
+        raise HTTPException(403, "Section not permitted for this account")
+
+
 async def notify(user_id: str, kind: str, message: str,
                  link: Optional[str] = None) -> None:
     n = Notification(user_id=user_id, kind=kind, message=message, link=link)
@@ -511,7 +548,7 @@ async def change_password(payload: ChangePasswordRequest,
 
 # ----- users (admin only) -------------------------------------------------
 @api.get("/users")
-async def list_users(user: User = Depends(require_roles("admin"))):
+async def list_users(user: User = Depends(require_section("users", "admin"))):
     users = []
     async for u in db.users.find({}, {"_id": 0, "password_hash": 0}):
         users.append(u)
@@ -524,9 +561,12 @@ async def create_user(payload: UserCreate,
     exists = await db.users.find_one({"phone": payload.phone})
     if exists:
         raise HTTPException(400, "A user with this phone already exists")
-    if payload.role == "site_manager" and not payload.project_id:
-        raise HTTPException(400, "site_manager must have a project_id")
-    u = User(**payload.model_dump())
+    if payload.role in ("site_manager", "management") and not payload.project_id:
+        raise HTTPException(400, f"{payload.role} must have a project_id")
+    data = payload.model_dump()
+    if data.get("permissions") is None:
+        data.pop("permissions", None)
+    u = User(**data)
     doc = u.model_dump()
     doc["password_hash"] = hash_pw(payload.phone)  # initial password = phone
     await db.users.insert_one(doc)
@@ -543,6 +583,22 @@ async def update_user(user_id: str, payload: UserCreate,
     if r.matched_count == 0:
         raise HTTPException(404, "User not found")
     return {"ok": True}
+
+
+@api.patch("/users/{user_id}/access")
+async def update_user_access(user_id: str, payload: AccessUpdate,
+                             user: User = Depends(require_roles("admin"))):
+    doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "User not found")
+    bad = [s for s in payload.permissions if s not in MGMT_SECTIONS]
+    if bad:
+        raise HTTPException(400, f"Unknown sections: {', '.join(bad)}")
+    updates: dict = {"permissions": payload.permissions}
+    if payload.project_id is not None:
+        updates["project_id"] = payload.project_id
+    await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    return {"ok": True, "permissions": payload.permissions}
 
 
 @api.post("/users/{user_id}/reset-password")
@@ -573,7 +629,7 @@ async def delete_user(user_id: str,
 @api.get("/projects")
 async def list_projects(user: User = Depends(get_current_user)):
     q = {}
-    if user.role == "site_manager" and user.project_id:
+    if user.role in ("site_manager", "management") and user.project_id:
         q = {"project_id": user.project_id}
     return await db.projects.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
 
@@ -647,7 +703,9 @@ async def list_units(project_id: Optional[str] = None,
         q["project_id"] = project_id
     if status:
         q["status"] = status
-    if user.role == "site_manager" and user.project_id:
+    if user.role == "management":
+        _mgmt_gate(user, "units")
+    if user.role in ("site_manager", "management") and user.project_id:
         q["project_id"] = user.project_id
     rows = await db.units.find(q, {"_id": 0}).to_list(5000)
     rows.sort(key=lambda u: _plot_key(u.get("plot_number")))
@@ -1061,10 +1119,12 @@ async def cancel_booking(unit_id: str, payload: CancelBookingRequest,
 
 @api.get("/cancellations")
 async def list_cancellations(project_id: Optional[str] = None,
-                             user: User = Depends(require_roles("admin", "accounts"))):
+                             user: User = Depends(require_section("sales", "admin", "accounts"))):
     q: dict = {}
     if project_id:
         q["project_id"] = project_id
+    if user.role == "management" and user.project_id:
+        q["project_id"] = user.project_id
     return await db.cancellations.find(q, {"_id": 0}).sort("cancelled_at", -1).to_list(1000)
 
 
@@ -1081,6 +1141,10 @@ async def list_payments(project_id: Optional[str] = None,
         q["status"] = status
     if unit_id:
         q["unit_id"] = unit_id
+    if user.role == "management":
+        _mgmt_gate(user, "sales")
+        if user.project_id:
+            q["project_id"] = user.project_id
     return await db.payments.find(q, {"_id": 0}).sort("due_date", 1).to_list(2000)
 
 
@@ -1247,12 +1311,17 @@ async def correct_receipt(payment_id: str, receipt_id: str, payload: ReceiptCrea
 
 @api.get("/payments/verifications")
 async def payment_verifications(status: Optional[str] = None,
-                                 user: User = Depends(require_roles("accounts", "admin"))):
+                                 user: User = Depends(require_section("sales", "accounts", "admin"))):
     """Flatten pending/returned/verified receipts with booking context for the queue."""
+    scope = {"receipts.0": {"$exists": True}}
+    if user.role == "management" and user.project_id:
+        scope["project_id"] = user.project_id
     projects = {p["project_id"]: p for p in await db.projects.find({}, {"_id": 0}).to_list(100)}
+    units_map = {u["unit_id"]: u for u in await db.units.find(
+        {}, {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1}).to_list(5000)}
     out = []
-    async for pay in db.payments.find({"receipts.0": {"$exists": True}}, {"_id": 0}):
-        unit = await db.units.find_one({"unit_id": pay["unit_id"]}, {"_id": 0, "plot_number": 1, "buyer_name": 1})
+    async for pay in db.payments.find(scope, {"_id": 0}):
+        unit = units_map.get(pay["unit_id"])
         for rc in pay.get("receipts", []):
             vs = rc.get("verification_status", "verified")
             if status and vs != status:
@@ -1280,13 +1349,16 @@ async def payment_verifications(status: Optional[str] = None,
 
 # ----- procurement (site_manager -> admin -> accounts) -------------------
 @api.get("/accounts/overview")
-async def accounts_overview(user: User = Depends(require_roles("accounts", "admin", "post_sales"))):
-    payments = await db.payments.find({}, {"_id": 0}).to_list(20000)
+async def accounts_overview(user: User = Depends(require_section("sales", "accounts", "admin", "post_sales"))):
+    scope: dict = {}
+    if user.role == "management" and user.project_id:
+        scope = {"project_id": user.project_id}
+    payments = await db.payments.find(scope, {"_id": 0}).to_list(20000)
     units = await db.units.find(
-        {"status": "sold"},
+        {**scope, "status": "sold"},
         {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1, "project_id": 1}).to_list(5000)
     umap = {u["unit_id"]: u for u in units}
-    projects = await db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)
+    projects = await db.projects.find(scope, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)
     pname = {p["project_id"]: p["name"] for p in projects}
 
     by_unit: dict = {}
@@ -1354,8 +1426,10 @@ async def accounts_overview(user: User = Depends(require_roles("accounts", "admi
 @api.get("/procurement")
 async def list_procurement(user: User = Depends(get_current_user)):
     q: dict = {}
-    if user.role == "site_manager" and user.project_id:
+    if user.role in ("site_manager", "management") and user.project_id:
         q["project_id"] = user.project_id
+    if user.role == "management":
+        _mgmt_gate(user, "procurement")
     return await db.procurement.find(q, {"_id": 0}).sort("requested_at", -1).to_list(500)
 
 
@@ -1377,15 +1451,24 @@ async def create_procurement(
     if not item_list:
         raise HTTPException(400, "At least one item is required")
     pi_ref = await save_upload(file, "procurement/pi", user.user_id) if file else None
+    mgmt = await db.users.find_one(
+        {"role": "management", "project_id": project_id, "is_active": True},
+        {"_id": 0, "user_id": 1})
     r = ProcurementRequest(
         project_id=project_id, subject=subject,
         items=[ProcurementItem(**i) for i in item_list],
-        priority=priority, notes=notes, requested_by=user.user_id, pi_file=pi_ref)
+        priority=priority, notes=notes, requested_by=user.user_id, pi_file=pi_ref,
+        status="pending_management" if mgmt else "pending_admin")
     await db.procurement.insert_one(r.model_dump())
     proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
-    await notify_role("admin", "procurement_new",
-                      f"Procurement request · {subject} · {proj.get('name','')} · "
-                      f"Priority: {priority}", "/procurement")
+    if mgmt:
+        await notify(mgmt["user_id"], "procurement_new",
+                     f"Procurement request · {subject} · {proj.get('name','')} · "
+                     f"Priority: {priority} — needs your primary approval", "/procurement")
+    else:
+        await notify_role("admin", "procurement_new",
+                          f"Procurement request · {subject} · {proj.get('name','')} · "
+                          f"Priority: {priority}", "/procurement")
     return r.model_dump()
 
 
@@ -1516,6 +1599,43 @@ async def admin_action_procurement(request_id: str, payload: AdminAction,
     return {"ok": True, "status": new_status}
 
 
+@api.post("/procurement/{request_id}/mgmt-action")
+async def mgmt_action_procurement(request_id: str, payload: MgmtAction,
+                                   user: User = Depends(require_roles("management"))):
+    _mgmt_gate(user, "procurement")
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    if user.project_id and doc["project_id"] != user.project_id:
+        raise HTTPException(403, "Project not in your scope")
+    if doc["status"] not in ("pending_management", "management_clarification"):
+        raise HTTPException(400, f"Cannot act on request in status {doc['status']}")
+    if payload.action != "approve" and not payload.note.strip():
+        raise HTTPException(400, "A note is required for reject / clarification")
+    if payload.action == "approve":
+        new_status = "pending_admin"
+    elif payload.action == "reject":
+        new_status = "rejected"
+    else:
+        new_status = "management_clarification"
+    await db.procurement.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": new_status,
+                  "mgmt_action_by": user.user_id,
+                  "mgmt_action_at": now(),
+                  "mgmt_note": payload.note}})
+    msg = f"Procurement '{doc['subject']}' — management {payload.action}"
+    if payload.note:
+        msg += f" · {payload.note}"
+    await notify(doc["requested_by"], f"procurement_mgmt_{payload.action}", msg, "/procurement")
+    if new_status == "pending_admin":
+        proj = await db.projects.find_one({"project_id": doc["project_id"]}, {"_id": 0}) or {}
+        await notify_role("admin", "procurement_new",
+                          f"Procurement request · {doc['subject']} · {proj.get('name','')} — "
+                          f"management approved, needs final approval", "/procurement")
+    return {"ok": True, "status": new_status}
+
+
 # ----- inventory (site_manager) ------------------------------------------
 @api.get("/inventory")
 async def list_inventory(project_id: Optional[str] = None,
@@ -1523,8 +1643,10 @@ async def list_inventory(project_id: Optional[str] = None,
     q: dict = {}
     if project_id:
         q["project_id"] = project_id
-    if user.role == "site_manager" and user.project_id:
+    if user.role in ("site_manager", "management") and user.project_id:
         q["project_id"] = user.project_id
+    if user.role == "management":
+        _mgmt_gate(user, "inventory")
     return await db.inventory.find(q, {"_id": 0}).sort("name", 1).to_list(500)
 
 
@@ -1606,8 +1728,9 @@ async def _sum_field(coll, match: dict, field: str) -> float:
     return float(rows[0]["s"]) if rows else 0.0
 
 
-async def _projects_overview():
-    projects = await db.projects.find({}, {"_id": 0}).sort("created_at", 1).to_list(50)
+async def _projects_overview(only_project: Optional[str] = None):
+    q = {"project_id": only_project} if only_project else {}
+    projects = await db.projects.find(q, {"_id": 0}).sort("created_at", 1).to_list(50)
     out = []
     con = {"projects": len(projects), "total_units": 0, "available": 0, "sold": 0,
            "booked_value": 0.0, "received_total": 0.0, "pending_total": 0.0}
@@ -1657,7 +1780,7 @@ async def _projects_overview():
 async def dashboard(user: User = Depends(get_current_user)):
     today = datetime.now(timezone.utc).date().isoformat()
     proj_q: dict = {}
-    if user.role == "site_manager" and user.project_id:
+    if user.role in ("site_manager", "management") and user.project_id:
         proj_q = {"project_id": user.project_id}
 
     # ---- shared counts (kept for backward compatibility) ----
@@ -1782,7 +1905,7 @@ async def dashboard(user: User = Depends(get_current_user)):
         if user.project_id:
             my_proc_q = {"project_id": user.project_id}
         proc_by_status = {}
-        for st in ["pending_admin", "pending_clarification", "approved", "paid", "rejected"]:
+        for st in ["pending_management", "management_clarification", "pending_admin", "pending_clarification", "approved", "paid", "rejected"]:
             proc_by_status[st] = await db.procurement.count_documents({**my_proc_q, "status": st})
         recent_proc = await db.procurement.find(
             my_proc_q, {"_id": 0}).sort("requested_at", -1).limit(8).to_list(8)
@@ -1791,6 +1914,46 @@ async def dashboard(user: User = Depends(get_current_user)):
             "low_stock": low_stock,
             "procurement_by_status": proc_by_status,
             "recent_procurement": recent_proc,
+        })
+        return base
+
+    # ================= MANAGEMENT (view-only, scoped to one project) =========
+    if user.role == "management":
+        pid = user.project_id
+        by_project, consolidated = await _projects_overview(pid)
+        approvals = await db.procurement.find(
+            {"project_id": pid, "status": {"$in": ["pending_management", "management_clarification"]}},
+            {"_id": 0}).sort("requested_at", -1).limit(10).to_list(10)
+        recent_sales = await db.units.find(
+            {"project_id": pid, "status": "sold"}, {"_id": 0}).sort("sold_at", -1).limit(6).to_list(6)
+        site_procs = await db.procurement.find(
+            {"project_id": pid, "status": {"$in": ["po_issued", "paid"]}}, {"_id": 0}).to_list(500)
+        site_pending = site_paid = 0.0
+        site_milestones = []
+        for r in site_procs:
+            ms = r.get("milestones") or []
+            est = round(sum(m.get("amount", 0) for m in ms), 2) if ms else round(r.get("paid_amount", 0), 2)
+            paid = round(sum((m.get("paid_amount", 0) or 0) for m in ms if m.get("status") == "paid"), 2)
+            site_pending += max(0.0, est - paid); site_paid += paid
+            for m in ms:
+                site_milestones.append({"subject": r["subject"], "po_number": r.get("po_number"),
+                                        "label": m.get("label"), "amount": m.get("amount"),
+                                        "due": m.get("due"), "status": m.get("status")})
+        mgmt_pending = await db.procurement.count_documents(
+            {"project_id": pid, "status": {"$in": ["pending_management", "management_clarification"]}})
+        proj = await db.projects.find_one({"project_id": pid}, {"_id": 0}) or {}
+        base.update({
+            "permissions": user.permissions or [],
+            "project_id": pid,
+            "project_name": proj.get("name", ""),
+            "mgmt_approvals_pending": mgmt_pending,
+            "procurement_approvals": approvals,
+            "recent_sales": recent_sales,
+            "site_bills": {"pending": round(site_pending, 2), "paid": round(site_paid, 2),
+                           "count": len(site_procs),
+                           "milestones": sorted(site_milestones, key=lambda x: (x["status"] == "paid", x.get("due") or ""))[:8]},
+            "by_project": by_project,
+            "consolidated": consolidated,
         })
         return base
 
