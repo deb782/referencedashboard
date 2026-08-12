@@ -236,3 +236,15 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Verified: testing agent iteration_14.json 95% (no functional regression, desktop + mobile 390px), then the 2 flagged minor overflows (Sales tabs, notif panel) fixed and re-verified via screenshot (body scrollWidth==390, notif box x=12 w=366).
 - CAUTION LEARNED: do NOT run two replace_all edits on the SAME file in one parallel batch — it caused a race that corrupted Sales.jsx tail (duplicated ReceiptDialog close + round2); fixed by removing the duplicate. Sequence same-file edits.
 - DB left clean (sold/payments/cancellations/notifications = 0). ACTION FOR USER: Redeploy to push responsive UI to production.
+
+---
+## PHASE 9 — Payment maker-checker (Post Sales records → Accounts verifies) (2026-08-12)
+- Reused existing payments/receipts model; extended each receipt with receipt_id, verification_status(pending|verified|returned), submitted_by/at, mode, head, allocations[], expected_remaining_date, verified_by/at, return_reason, history[].
+- paid_amount is now DERIVED = sum of VERIFIED receipts (so all existing dashboard/accounts math counts only verified money, no formula rewrites). _projects_overview adds awaiting_verification (sum of pending receipt amounts).
+- Endpoints: POST /payments/{id}/receipt (post_sales only, creates PENDING, validates alloc==amount & mode); POST /payments/{id}/receipts/{rid}/verify (accounts only, YES posts / NO returns w/ reason, idempotent double-verify=400); PATCH /payments/{id}/receipts/{rid} (post_sales, correct returned → pending); GET /payments/verifications?status=. accounts_overview now allows post_sales (to load Plots list).
+- Maker-checker enforced in BACKEND (admin/accounts blocked from record=403; post_sales blocked from verify=403).
+- Migration on startup (_migrate_receipt_verification): legacy receipts backfilled to 'verified' so historical money keeps counting.
+- Frontend Sales.jsx: PlotDrilldown shows instalments+receipts w/ verification badges; ReceiptDialog enhanced (component allocation chips from plot breakdown, mode, head, expected-remaining-date, partial support); new Verification tab (accounts/admin) with pending/returned/verified filters + YES/NO. AdminDashboard project card now shows 'Awaiting Verify' mini.
+- Verified: backend curl end-to-end + testing agent iteration_16.json = 100% (all 5 scenarios, guards, return/correct/resubmit). DB clean (sold=0/payments=0). Test users: post_sales 9000000001, accounts 9000000002 (Pass@123).
+- NOT YET DONE (deferred, ran out of scope this pass): §35-36 downloadable plot-wise PDF Payment Report; a compact Collections widget embedded on the Post Sales *dashboard* (recording currently done via Sales & Payments > Plots).
+- ACTION FOR USER: Redeploy to push to production. Production will auto-migrate old receipts to 'verified' on boot; create real post_sales & accounts users there.

@@ -307,6 +307,16 @@ class ReceiptCreate(BaseModel):
     amount: float
     date: Optional[str] = None
     notes: str = ""
+    mode: str = ""
+    head: str = ""
+    allocations: list = []                       # [{key,label,amount}]
+    expected_remaining_date: Optional[str] = None
+
+
+class VerifyDecision(BaseModel):
+    decision: Literal["yes", "no"]
+    reason: str = ""
+    notes: str = ""
 
 
 class PaymentUpdate(BaseModel):
@@ -1102,40 +1112,175 @@ async def update_payment(payment_id: str, payload: PaymentUpdate,
     return {"ok": True}
 
 
+def _recompute_payment(pay: dict) -> dict:
+    """Derive paid_amount/status from VERIFIED receipts only."""
+    receipts = pay.get("receipts", [])
+    verified = round(sum(_num(r.get("amount")) for r in receipts
+                         if r.get("verification_status") == "verified"), 2)
+    amt = round(_num(pay.get("amount")), 2)
+    status = "received" if verified >= amt - 0.01 and amt > 0 else ("partial" if verified > 0 else "pending")
+    last_v = [r for r in receipts if r.get("verification_status") == "verified"]
+    return {
+        "paid_amount": verified,
+        "status": status,
+        "received_date": (last_v[-1].get("date") if last_v else None),
+    }
+
+
 @api.post("/payments/{payment_id}/receipt")
 async def add_receipt(payment_id: str, payload: ReceiptCreate,
-                       user: User = Depends(require_roles("accounts", "admin"))):
+                       user: User = Depends(require_roles("post_sales"))):
     pay = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
     if not pay:
         raise HTTPException(404, "Payment not found")
     amt = round(_num(payload.amount), 2)
     if amt <= 0:
-        raise HTTPException(400, "Receipt amount must be greater than zero")
-    new_paid = round((pay.get("paid_amount") or 0) + amt, 2)
+        raise HTTPException(400, "Payment amount must be greater than zero")
+    allocs = [{"key": a.get("key", ""), "label": a.get("label", ""),
+               "amount": round(_num(a.get("amount")), 2)} for a in payload.allocations]
+    alloc_total = round(sum(a["amount"] for a in allocs), 2)
+    if allocs and abs(alloc_total - amt) > 0.01:
+        raise HTTPException(400, f"Component allocation (\u20B9{alloc_total:,.2f}) must equal amount received (\u20B9{amt:,.2f})")
+    if not payload.mode:
+        raise HTTPException(400, "Mode of payment is required")
     receipt = {
+        "receipt_id": new_id("rc"),
         "amount": amt,
         "date": payload.date or datetime.now(timezone.utc).date().isoformat(),
         "notes": payload.notes or "",
-        "by": user.user_id, "by_name": user.name, "at": now(),
+        "mode": payload.mode, "head": payload.head or "",
+        "allocations": allocs,
+        "expected_remaining_date": payload.expected_remaining_date or None,
+        "verification_status": "pending",
+        "submitted_by": user.user_id, "submitted_by_name": user.name,
+        "submitted_at": now(),
+        "history": [{"action": "submitted", "by_name": user.name, "at": now()}],
     }
-    status = "received" if new_paid >= round(pay["amount"], 2) - 0.01 else "partial"
-    await db.payments.update_one({"payment_id": payment_id}, {
-        "$set": {"paid_amount": new_paid, "status": status,
-                 "received_date": receipt["date"], "marked_by": user.user_id,
-                 "marked_at": now()},
-        "$push": {"receipts": receipt}})
+    await db.payments.update_one({"payment_id": payment_id}, {"$push": {"receipts": receipt}})
     unit = await db.units.find_one({"unit_id": pay["unit_id"]}, {"_id": 0})
-    verb = "fully received" if status == "received" else "part-paid"
     await notify_role(
-        "admin", "payment_received",
-        f"Plot {unit.get('plot_number')} · {pay.get('notes') or 'instalment'} "
-        f"{verb} · \u20B9{amt:,.2f}", "/sales")
-    return {"ok": True, "paid_amount": new_paid, "status": status}
+        "accounts", "payment_verification",
+        f"Verify: \u20B9{amt:,.0f} reported for Plot {unit.get('plot_number')}"
+        f"{(' · ' + unit.get('buyer_name')) if unit.get('buyer_name') else ''} "
+        f"· {pay.get('notes') or 'instalment'}", "/sales")
+    return {"ok": True, "receipt_id": receipt["receipt_id"]}
+
+
+@api.post("/payments/{payment_id}/receipts/{receipt_id}/verify")
+async def verify_receipt(payment_id: str, receipt_id: str, payload: VerifyDecision,
+                          user: User = Depends(require_roles("accounts"))):
+    pay = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    receipts = pay.get("receipts", [])
+    rc = next((r for r in receipts if r.get("receipt_id") == receipt_id), None)
+    if not rc:
+        raise HTTPException(404, "Receipt not found")
+    if rc.get("verification_status") == "verified":
+        raise HTTPException(400, "This payment is already verified")
+    if payload.decision == "yes":
+        rc["verification_status"] = "verified"
+        rc["verified_by"] = user.user_id
+        rc["verified_by_name"] = user.name
+        rc["verified_at"] = now()
+        rc.setdefault("history", []).append({"action": "verified", "by_name": user.name, "at": now()})
+    else:
+        if not payload.reason:
+            raise HTTPException(400, "A reason is required to return a payment")
+        rc["verification_status"] = "returned"
+        rc["return_reason"] = payload.reason
+        rc["return_notes"] = payload.notes or ""
+        rc["returned_by"] = user.user_id
+        rc["returned_by_name"] = user.name
+        rc["returned_at"] = now()
+        rc.setdefault("history", []).append({"action": "returned", "by_name": user.name, "at": now(), "reason": payload.reason})
+    derived = _recompute_payment({**pay, "receipts": receipts})
+    await db.payments.update_one({"payment_id": payment_id}, {"$set": {"receipts": receipts, **derived}})
+    unit = await db.units.find_one({"unit_id": pay["unit_id"]}, {"_id": 0})
+    if payload.decision == "yes":
+        await notify_role("admin", "payment_received",
+                          f"Payment verified · Plot {unit.get('plot_number')} · \u20B9{_num(rc['amount']):,.0f}", "/sales")
+        await notify(rc.get("submitted_by"), "payment_verified",
+                          f"Payment verified · Plot {unit.get('plot_number')} · \u20B9{_num(rc['amount']):,.0f}", "/dashboard")
+    else:
+        await notify(rc.get("submitted_by"), "payment_returned",
+                          f"Payment returned · Plot {unit.get('plot_number')} · {payload.reason}", "/dashboard")
+    return {"ok": True, **derived}
+
+
+@api.patch("/payments/{payment_id}/receipts/{receipt_id}")
+async def correct_receipt(payment_id: str, receipt_id: str, payload: ReceiptCreate,
+                           user: User = Depends(require_roles("post_sales"))):
+    pay = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    receipts = pay.get("receipts", [])
+    rc = next((r for r in receipts if r.get("receipt_id") == receipt_id), None)
+    if not rc:
+        raise HTTPException(404, "Receipt not found")
+    if rc.get("verification_status") != "returned":
+        raise HTTPException(400, "Only a returned payment can be corrected")
+    amt = round(_num(payload.amount), 2)
+    if amt <= 0:
+        raise HTTPException(400, "Payment amount must be greater than zero")
+    allocs = [{"key": a.get("key", ""), "label": a.get("label", ""),
+               "amount": round(_num(a.get("amount")), 2)} for a in payload.allocations]
+    alloc_total = round(sum(a["amount"] for a in allocs), 2)
+    if allocs and abs(alloc_total - amt) > 0.01:
+        raise HTTPException(400, f"Component allocation must equal amount received (\u20B9{amt:,.2f})")
+    if not payload.mode:
+        raise HTTPException(400, "Mode of payment is required")
+    rc.update({
+        "amount": amt, "date": payload.date or rc.get("date"),
+        "notes": payload.notes or "", "mode": payload.mode, "head": payload.head or "",
+        "allocations": allocs, "expected_remaining_date": payload.expected_remaining_date or None,
+        "verification_status": "pending",
+    })
+    rc.pop("return_reason", None); rc.pop("return_notes", None)
+    rc.setdefault("history", []).append({"action": "resubmitted", "by_name": user.name, "at": now()})
+    await db.payments.update_one({"payment_id": payment_id}, {"$set": {"receipts": receipts}})
+    unit = await db.units.find_one({"unit_id": pay["unit_id"]}, {"_id": 0})
+    await notify_role("accounts", "payment_verification",
+                      f"Re-verify: \u20B9{amt:,.0f} for Plot {unit.get('plot_number')} (corrected)", "/sales")
+    return {"ok": True}
+
+
+@api.get("/payments/verifications")
+async def payment_verifications(status: Optional[str] = None,
+                                 user: User = Depends(require_roles("accounts", "admin"))):
+    """Flatten pending/returned/verified receipts with booking context for the queue."""
+    projects = {p["project_id"]: p for p in await db.projects.find({}, {"_id": 0}).to_list(100)}
+    out = []
+    async for pay in db.payments.find({"receipts.0": {"$exists": True}}, {"_id": 0}):
+        unit = await db.units.find_one({"unit_id": pay["unit_id"]}, {"_id": 0, "plot_number": 1, "buyer_name": 1})
+        for rc in pay.get("receipts", []):
+            vs = rc.get("verification_status", "verified")
+            if status and vs != status:
+                continue
+            out.append({
+                "payment_id": pay["payment_id"], "receipt_id": rc.get("receipt_id"),
+                "project_id": pay["project_id"],
+                "project_name": projects.get(pay["project_id"], {}).get("name", ""),
+                "plot_number": unit.get("plot_number") if unit else "",
+                "buyer_name": unit.get("buyer_name") if unit else "",
+                "instalment": pay.get("notes"), "due_date": pay.get("due_date"),
+                "expected_amount": pay.get("amount"),
+                "amount": rc.get("amount"), "date": rc.get("date"),
+                "mode": rc.get("mode"), "head": rc.get("head"),
+                "allocations": rc.get("allocations", []),
+                "expected_remaining_date": rc.get("expected_remaining_date"),
+                "notes": rc.get("notes"), "verification_status": vs,
+                "submitted_by_name": rc.get("submitted_by_name"), "submitted_at": rc.get("submitted_at"),
+                "return_reason": rc.get("return_reason"), "return_notes": rc.get("return_notes"),
+                "history": rc.get("history", []),
+            })
+    out.sort(key=lambda x: x.get("submitted_at") or "", reverse=True)
+    return out
 
 
 # ----- procurement (site_manager -> admin -> accounts) -------------------
 @api.get("/accounts/overview")
-async def accounts_overview(user: User = Depends(require_roles("accounts", "admin"))):
+async def accounts_overview(user: User = Depends(require_roles("accounts", "admin", "post_sales"))):
     payments = await db.payments.find({}, {"_id": 0}).to_list(20000)
     units = await db.units.find(
         {"status": "sold"},
@@ -1476,6 +1621,11 @@ async def _projects_overview():
         received = round(await _sum_field(db.payments, {"project_id": pid}, "paid_amount"), 2)
         retained = round(await _sum_field(db.cancellations, {"project_id": pid}, "balance_retained"), 2)
         received = round(received + retained, 2)
+        awaiting = 0.0
+        async for _p in db.payments.find({"project_id": pid}, {"_id": 0, "receipts": 1}):
+            awaiting += sum(_num(r.get("amount")) for r in _p.get("receipts", [])
+                            if r.get("verification_status") == "pending")
+        awaiting = round(awaiting, 2)
         pending = round(max(0.0, booked - received), 2)
         pivots = []
         for c in (p.get("columns") or []):
@@ -1492,6 +1642,7 @@ async def _projects_overview():
             "columns": p.get("columns", []),
             "total_units": len(units), "available": len(units) - len(sold), "sold": len(sold),
             "booked_value": booked, "received_total": received, "pending_total": pending,
+            "awaiting_verification": awaiting,
             "pivots": pivots,
         })
         con["total_units"] += len(units); con["available"] += len(units) - len(sold)
@@ -1715,6 +1866,28 @@ ROLE_LABELS_PY = {
 
 
 
+async def _migrate_receipt_verification():
+    """Backfill legacy receipts (recorded under the old Accounts flow) as
+    'verified' so historical confirmed money keeps counting, then recompute."""
+    fixed = 0
+    async for pay in db.payments.find({"receipts.0": {"$exists": True}}):
+        receipts = pay.get("receipts", [])
+        changed = False
+        for r in receipts:
+            if not r.get("verification_status"):
+                r["verification_status"] = "verified"
+                r.setdefault("receipt_id", new_id("rc"))
+                r.setdefault("verified_by_name", "Migrated")
+                r.setdefault("verified_at", r.get("at") or now())
+                changed = True
+        if changed:
+            derived = _recompute_payment({**pay, "receipts": receipts})
+            await db.payments.update_one({"_id": pay["_id"]}, {"$set": {"receipts": receipts, **derived}})
+            fixed += 1
+    if fixed:
+        log.info("Migrated receipt verification on %d payment(s)", fixed)
+
+
 # ----- startup ------------------------------------------------------------
 app.include_router(api)
 
@@ -1752,6 +1925,7 @@ async def startup():
     await db.units.create_index("unit_id")
     await db.units.create_index([("project_id", 1), ("plot_number", 1)])
     await _scrub_nonfinite_data()
+    await _migrate_receipt_verification()
     try:
         init_storage()
         log.info("Object storage initialised")

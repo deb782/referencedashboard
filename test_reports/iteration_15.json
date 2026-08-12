@@ -1,0 +1,41 @@
+{
+  "summary": "Frontend testing of payment maker-checker flow (Phase 9). Tested login, plot booking (CVF plot 32), Sales & Payments drilldown, and role-based visibility for Post Sales / Accounts / Admin. Found a CRITICAL blocker: Post Sales role cannot access the Plots tab or open the plot drilldown to record a payment because GET /api/accounts/overview requires role in {admin, accounts} (returns 401 for post_sales). As a result, the entire 'Post Sales records payment' UI flow is unreachable, breaking the maker-checker end-to-end. Admin and Accounts UI-level guards look correct (Admin does not see Record/Verify buttons; Accounts does not see Record button; Post Sales does not see Verification tab or Verify buttons). Admin dashboard shows the new 4th mini 'Awaiting Verify' correctly. Since Post Sales cannot submit a receipt via UI, the downstream verify YES / verify NO+correct+resubmit flows could not be exercised via UI. Cleanup done: sold=0, payments=0, cancellations=0, notifications=0.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/accounts/overview", "issue": "Requires role in {admin, accounts} via require_roles at server.py:1283. Post Sales (role=post_sales) receives 401/403, so Sales page Plots tab shows empty state 'No plot dues yet' and the plot drilldown cannot be opened. This blocks the entire Post Sales 'Record payment' UI flow described in the request. Fix: allow post_sales in this endpoint (Depends(require_roles('admin','accounts','post_sales'))) so the frontend Sales.jsx (which already gates canRecord separately) can render plots for Post Sales.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "DELETE /api/cancellations/{id}", "issue": "Endpoint does not exist (returns 404). Not blocking, but cleanup requires direct DB access."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Sales.jsx (Plots tab for Post Sales)", "issue": "Post Sales user sees the Sales & Payments nav and Plots tab but the plots list is always empty because the page depends on /accounts/overview which returns 401 for post_sales. UI does not surface an error toast either — the failure is silent (caught + ignored in load()). Users just see 'No plot dues yet'.", "selector": "[data-testid=\"sales-page\"] / plot-pay-row-{n}", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "Post Sales → Record payment (Sales > Plots > drilldown)", "issue": "Blocked at data fetch step. Cannot reach ReceiptDialog because plot rows never render for Post Sales. Consequently verify YES / verify NO + correct + resubmit flows cannot be exercised end-to-end via UI in this run.", "affected_selectors": ["plot-pay-row-32", "receipt-btn-*", "receipt-submit"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_15.json"],
+  "action_items": [
+    "CRITICAL: Update /api/accounts/overview role guard to include 'post_sales' (require_roles('admin','accounts','post_sales')) OR change the frontend Sales.jsx to fetch plots via a different endpoint that already permits post_sales (e.g. /api/payments + /api/units join client-side). Without this, Post Sales cannot record any payment.",
+    "After the fix, re-run the full maker-checker E2E: submit → Accounts YES → Admin dashboard totals update → submit again → Accounts NO with reason → Correct → Resubmit → Accounts YES.",
+    "(Minor) Add a DELETE /api/cancellations/{id} route or expose a cleanup path for QA. Also consider surfacing a toast when /accounts/overview fails so the empty state isn't misleading."
+  ],
+  "critical_code_review_comments": [
+    "Sales.jsx load() silently swallows errors on /accounts/overview and /payments/verifications (catch { /* ignore */ }). This masks the role/permission bug for Post Sales. Prefer surfacing at least once per session with toast.error(apiError(e)).",
+    "Frontend already has correct role gating: canRecord=post_sales, canVerify=accounts, canViewPay=post_sales|accounts|admin, and drilldown buttons (Record / verify-yes / verify-no / correct) are gated properly per role — verified via UI inspection with Admin and Accounts sessions.",
+    "AdminDashboard.jsx correctly shows 4 minis including 'Awaiting Verify' from p.awaiting_verification.",
+    "ReceiptDialog uses <input type='date'> (browser native picker) rather than shadcn Calendar — consistent with rest of app.",
+    "server.py:1283 is the primary role mismatch. If business intent is truly Post Sales must see plots to drill down, the guard needs updating."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "35% (Post Sales core flow blocked; Admin/Accounts view-only guards verified)"},
+  "test_credentials": "Admin 9513242807 / Repro@123, Post Sales 9000000001 / Pass@123, Accounts 9000000002 / Pass@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Booked CVF plot 32 (buyer 'TEST Buyer QA', schedule 'On booking' ₹1,00,000 due 2026-02-15) to attempt the flow, then cancelled + purged. Final DB state confirmed clean: sold=0, payments=0, cancellations=0, notifications=0. 3 users preserved. Unit.data untouched. Rates unchanged.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "The Post Sales record-payment flow is blocked by backend role check on /accounts/overview. Once fixed (add 'post_sales' to require_roles), the intended E2E should work: Login PS → Units → Sell plot with schedule → Sales & Payments → Plots → open drilldown → Record payment (validate MODES/HEADS selects, component chips comp-{key}/alloc-{key}, expected-remaining-date on partial, guards: missing mode blocks with toast, allocation mismatch blocks with toast) → toast 'submitted for verification' → Awaiting verification badge (VStatus pending). Then Admin dashboard project card 4th mini 'Awaiting Verify' shows the amount and 'Total Received' unchanged. Accounts → head-verify tab → vfilter-pending → vq-yes-{rid} → toast 'Payment verified' → Admin dashboard 'Total Received' updates and 'Awaiting Verify' drops to 0. Repeat with vq-no-{rid} using window.prompt handler → returned badge shows → correct-{rid} btn on drilldown → edit + Resubmit → pending → verify YES. All testids listed in the request are present in the code and correct.",
+  "rca of the issue": "Root cause: /app/backend/server.py:1282-1283 GET /accounts/overview is protected by require_roles('accounts','admin'). Frontend Sales.jsx line 21 calls this endpoint for ALL users who reach /sales, including post_sales. Because post_sales isn't in the allowed list, the API returns 401 and the ov state stays null; plots.projects renders as empty, so plot-pay-row-* never mounts and the drilldown is unreachable. Reproduction: login 9000000001/Pass@123 → /sales → observe network 401 on /accounts/overview and 'No plot dues yet' empty state. Mitigation: add 'post_sales' to require_roles for this endpoint (post_sales is the maker in maker-checker; they must at least read the plot list to record a payment)."
+}

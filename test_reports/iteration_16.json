@@ -1,0 +1,25 @@
+{
+  "summary": "RETEST of Phase 9 payment maker-checker after backend fix (accounts_overview now allows post_sales). Full E2E via UI passed end-to-end for all 5 requested scenarios: (1) Post Sales booked CVF plot 32 (buyer 'TEST QA Buyer', one 'On booking' schedule ₹1,00,000 due 2026-02-15), navigated to Sales & Payments — the Plots list now loads for Post Sales (previously blocked). Opened drilldown, filled Amount 40000 + Mode 'Bank Transfer' + Head 'Booking Amount' + Notes + expected-remaining-date (partial < balance), submitted → toast 'Payment submitted for verification', receipt shown with 'Awaiting verification' badge. (2) Admin dashboard CVF card correctly shows AWAITING VERIFY ₹40,000 and TOTAL RECEIVED ₹0. (3) Accounts → Verification tab → Pending filter listed the receipt; clicked YES (vq-yes-rc_e364babe4991) → toast 'Payment verified'. Admin dashboard then showed TOTAL RECEIVED ₹40,000 and AWAITING VERIFY ₹0. (4) Post Sales recorded a 2nd payment ₹10,000; Accounts NO with prompted reason 'Amount mismatch' → toast 'Payment returned', receipt marked returned; Post Sales opened drilldown, clicked Correct on returned receipt (correct-<rid>), edited amount to ₹15,000 and expected-remaining-date, Resubmit → toast 'Payment corrected & resubmitted' → pending; Accounts YES → toast 'Payment verified'. Admin final TOTAL RECEIVED ₹55,000, AWAITING VERIFY ₹0. (5) Guards verified in UI: Post Sales sees NO head-verify tab and NO verify-yes/verify-no on receipts; Admin sees NO receipt-btn and NO verify-yes/no (view-only) — Admin retains head-verify tab which is view-tab (no actionable buttons); Accounts sees NO receipt-btn. DB cleanup done post-test.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_16.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Prior blocker (require_roles on /accounts/overview) is now fixed at backend/server.py:1283 (accounts, admin, post_sales). Verified via UI: Post Sales's Plots list now hydrates and drilldown+Record works.",
+    "Sales.jsx load() still swallows errors on /accounts/overview and /payments/verifications (catch { /* ignore */ }). Non-blocking, but keep on radar for future silent failures.",
+    "AdminDashboard 4th mini 'Awaiting Verify' correctly reflects pending receipts (₹40,000 → ₹0 after YES) — sourced from p.awaiting_verification.",
+    "Toast library uses [data-sonner-toast] as expected; all critical toasts verified: 'Payment submitted for verification', 'Payment verified', 'Payment returned', 'Payment corrected & resubmitted'.",
+    "Role gating in ReceiptDialog + PlotDrilldown (canRecord=post_sales, canVerify=accounts, admin view-only) is enforced correctly at UI level."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only run)", "frontend": "100% (all 5 requested scenarios passed E2E)"},
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123",
+  "seed_data_creation": "Booked CVF plot 32 (buyer TEST QA Buyer, one On-booking schedule ₹1,00,000 due 2026-02-15). Recorded 3 receipts total (₹40k verified, ₹10k returned+corrected to ₹15k verified). After test: reverted sold units to available (1→0), deleted all payments (1), notifications (10), cancellations (0). Final state: sold=0, payments=0, cancellations=0, notifications=0. 3 users preserved, unit.data untouched, rates unchanged (CVF 2500, VV 3200).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 9 maker-checker fully green. Preview at REACT_APP_BACKEND_URL. All testids (receipt-amount/mode/head/notes/expdate, comp-*/alloc-*, receipt-submit, receipt-btn-<pid>, vq-yes-/vq-no-<rid>, correct-<rid>, head-verify, vfilter-pending, dash-project-<pid>) are correct and reachable. To re-run: login PS→Units→sell any available plot with a schedule row→Sales&Payments→drilldown→Record. IMPORTANT: between role switches, clear localStorage (localStorage.clear()) then goto /login — the /login route redirects to /dashboard if session is present."
+}
