@@ -330,3 +330,4 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - DB restored clean (users 3, sold 0, payments 0).
 - ACTION FOR USER: Redeploy to push to production. Company address/contact can be added to the letterhead if provided.
 - **Letterhead contact line added** (2026-06): report letterhead now includes registered office "No.07 Level 3, Vista Pixel 8/2B & 8/2C, Bellary Road Jakkuru, Bengaluru, 560092" and "T +91 9513242807 · info@agrocorp.co.in". Verified via PDF text extraction. Redeploy to push live.
+- **GST tax-summary box** (2026-06): `_plot_report_data` now returns `gst_components`/`gst_total` (components whose label contains "GST"); PDF renders a compact "Tax Summary (GST)" table (each GST line + bold Total GST) right after Component Structure. Verified on a generated report (5 GST lines → Total GST Rs. 1,61,078). Redeploy to push live.

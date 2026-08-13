@@ -1374,6 +1374,9 @@ async def _plot_report_data(unit_id: str) -> dict:
         components.append({"label": c.get("label", c["key"]), "amount": amt,
                            "verified": vr, "balance": round(amt - vr, 2)})
 
+    gst_components = [c for c in components if "gst" in c["label"].lower()]
+    gst_total = round(sum(c["amount"] for c in gst_components), 2)
+
     total_payable = round(_num(unit.get("total")) or _num(unit.get("final_price")), 2)
     plan, verified_total, awaiting_total = [], 0.0, 0.0
     for p in pays:
@@ -1421,6 +1424,8 @@ async def _plot_report_data(unit_id: str) -> dict:
         "next_due": next_due,
         "next_due_date": next_due_date or "—",
         "components": components,
+        "gst_components": gst_components,
+        "gst_total": gst_total,
         "plan": plan,
         "history": history,
         "expected_remaining": expected_remaining,
@@ -1548,6 +1553,25 @@ def _build_report_pdf(d: dict) -> bytes:
                 [[c["label"], _inr_plain(c["amount"]), _inr_plain(c["verified"]), _inr_plain(c["balance"])]
                  for c in d["components"]],
                 aligns=[1, 2, 3], widths=[W * 0.40, W * 0.20, W * 0.20, W * 0.20])
+
+    # Tax Summary (GST)
+    if d.get("gst_components"):
+        story.append(H("Tax Summary (GST)"))
+        grows = [[c["label"], _inr_plain(c["amount"])] for c in d["gst_components"]]
+        grows.append(["Total GST", _inr_plain(d["gst_total"])])
+        gt = Table([["GST Component", "Amount"]] + grows, colWidths=[W * 0.60, W * 0.40])
+        gt.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), OLIVE), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.5),
+            ("FONT", (0, 1), (-1, -1), "Helvetica", 8.5),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("BOX", (0, 0), (-1, -1), 0.5, BORDER), ("INNERGRID", (0, 0), (-1, -1), 0.3, BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 4.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 4.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("BACKGROUND", (0, -1), (-1, -1), CREAM),
+            ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.6, OLIVE)]))
+        story.append(gt)
 
     # Payment Plan
     money_table("Payment Plan",
