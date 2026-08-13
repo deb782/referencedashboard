@@ -329,3 +329,4 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Frontend: Sales "Plots" head → each project SectionCard has an "All reports (ZIP)" button (testid `bulk-zip-<projectId>`) for admin/accounts, calling downloadFile on the zip endpoint with a "Preparing…" state. Screenshot-confirmed.
 - DB restored clean (users 3, sold 0, payments 0).
 - ACTION FOR USER: Redeploy to push to production. Company address/contact can be added to the letterhead if provided.
+- **Letterhead contact line added** (2026-06): report letterhead now includes registered office "No.07 Level 3, Vista Pixel 8/2B & 8/2C, Bellary Road Jakkuru, Bengaluru, 560092" and "T +91 9513242807 · info@agrocorp.co.in". Verified via PDF text extraction. Redeploy to push live.
