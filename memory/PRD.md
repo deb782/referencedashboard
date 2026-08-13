@@ -321,3 +321,11 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - **Login redesign**: split dark/light layout matching user screenshot — left dark panel with group-logo lockup + 'Real-time visibility…' tagline + lime accent dot + brand tile; right Sign in form.
 - Verified: testing agent iteration_24 = frontend 100% (11/11), zero console errors. DB restored clean (users 3, sold 0, payments 0, procurement 0).
 - ACTION FOR USER: Redeploy to push these changes to production.
+
+---
+## PHASE 14 · Report branding + bulk export (2026-06)
+- **PDF letterhead + signature**: `_build_report_pdf` now renders a proper letterhead ("AGROCORP GROUP" + Agrocorp/Vacation Village/Landshare logo lockup + "Real estate reimagined" tagline), a "PAYMENT STATEMENT" title band with statement date + project·plot·customer subline, and a bottom **signature block** (Authorised Signatory — For Agrocorp Group | Customer Acknowledgement — <customer>). Verified via analyze_file_tool on generated PDF.
+- **Bulk report export**: new `GET /api/projects/{project_id}/payment-reports.zip` (require_report_access; admin/accounts/post_sales/mgmt-with-perm) builds one PDF per SOLD unit (via asyncio.to_thread) and streams a ZIP. Verified: 2 sold plots → zip with 2 valid PDFs.
+- Frontend: Sales "Plots" head → each project SectionCard has an "All reports (ZIP)" button (testid `bulk-zip-<projectId>`) for admin/accounts, calling downloadFile on the zip endpoint with a "Preparing…" state. Screenshot-confirmed.
+- DB restored clean (users 3, sold 0, payments 0).
+- ACTION FOR USER: Redeploy to push to production. Company address/contact can be added to the letterhead if provided.

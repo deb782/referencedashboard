@@ -1463,15 +1463,31 @@ def _build_report_pdf(d: dict) -> bytes:
         except Exception:
             pass
     title_cell = [
-        Paragraph("PAYMENT REPORT", ParagraphStyle("t", fontName="Helvetica-Bold",
-                  fontSize=18, textColor=INK, leading=20)),
-        Paragraph(f"{d['project_name']} &nbsp;·&nbsp; Plot {d['plot_number']}",
-                  ParagraphStyle("t2", fontName="Helvetica", fontSize=10, textColor=MUTE, spaceBefore=3)),
+        Paragraph("AGROCORP GROUP", ParagraphStyle("t", fontName="Helvetica-Bold",
+                  fontSize=16, textColor=INK, leading=18)),
+        Paragraph("Agrocorp &nbsp;·&nbsp; Vacation Village &nbsp;·&nbsp; Landshare",
+                  ParagraphStyle("t2", fontName="Helvetica", fontSize=9, textColor=MUTE, spaceBefore=3)),
+        Paragraph("Real estate reimagined",
+                  ParagraphStyle("t3", fontName="Helvetica-Oblique", fontSize=8.5, textColor=OLIVE, spaceBefore=1)),
     ]
     head = Table([[brand or "", title_cell]], colWidths=[52 * mm, W - 52 * mm])
     head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                               ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
     story += [head, Spacer(1, 6), HRFlowable(width="100%", color=OLIVE, thickness=1.4), Spacer(1, 8)]
+
+    # Document title band
+    doc_title = Table([[
+        Paragraph("PAYMENT STATEMENT", ParagraphStyle("dt", fontName="Helvetica-Bold",
+                  fontSize=13, textColor=OLIVE, leading=15)),
+        Paragraph(f"Statement date: {datetime.now(timezone.utc).strftime('%d %b %Y')}",
+                  ParagraphStyle("dd", fontName="Helvetica", fontSize=8.5, textColor=MUTE)),
+    ]], colWidths=[W * 0.62, W * 0.38])
+    doc_title.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                                   ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
+    story += [doc_title,
+              Paragraph(f"{d['project_name']} &nbsp;·&nbsp; Plot {d['plot_number']} &nbsp;·&nbsp; {d['customer']}",
+                        ParagraphStyle("dsub", fontName="Helvetica", fontSize=9.5, textColor=INK, spaceBefore=2)),
+              Spacer(1, 4)]
 
     # Plot Information
     story.append(H("Plot Information"))
@@ -1558,8 +1574,22 @@ def _build_report_pdf(d: dict) -> bytes:
         for u in d["upcoming"]:
             story.append(Paragraph(f"• {u['installment']} — {_inr_plain(u['balance'])} due {u['due'] or '—'}", small))
 
+    # Signatures
+    sig_label = ParagraphStyle("sig", fontName="Helvetica-Bold", fontSize=8.5, textColor=INK, spaceBefore=3)
+    sig_sub = ParagraphStyle("sigs", fontName="Helvetica", fontSize=7.5, textColor=MUTE)
+
+    def sig_col(title, sub):
+        return [Spacer(1, 30), HRFlowable(width=62 * mm, color=INK, thickness=0.6),
+                Paragraph(title, sig_label), Paragraph(sub, sig_sub)]
+
+    sig = Table([[sig_col("Authorised Signatory", "For Agrocorp Group"), "",
+                  sig_col("Customer Acknowledgement", d["customer"] or "Customer")]],
+                colWidths=[W * 0.42, W * 0.16, W * 0.42])
+    sig.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story += [Spacer(1, 18), sig]
+
     story += [Spacer(1, 14), HRFlowable(width="100%", color=BORDER, thickness=0.6), Spacer(1, 4),
-              Paragraph(f"Generated {datetime.now(timezone.utc).strftime('%d %b %Y')} · Verified figures reflect Accounts-confirmed receipts only.",
+              Paragraph(f"Generated {datetime.now(timezone.utc).strftime('%d %b %Y')} · This is a computer-generated statement. Verified figures reflect Accounts-confirmed receipts only.",
                         ParagraphStyle("f", fontName="Helvetica-Oblique", fontSize=7.5, textColor=MUTE))]
     doc.build(story)
     return buf.getvalue()
@@ -1574,6 +1604,38 @@ async def download_payment_report(unit_id: str,
     from fastapi.responses import Response
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="Payment_Report_{safe}.pdf"'})
+
+
+@api.get("/projects/{project_id}/payment-reports.zip")
+async def bulk_payment_reports(project_id: str,
+                               user: User = Depends(require_report_access())):
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    units = await db.units.find(
+        {"project_id": project_id, "status": "sold"},
+        {"_id": 0, "unit_id": 1, "plot_number": 1}).to_list(5000)
+    if not units:
+        raise HTTPException(404, "No sold plots in this project")
+    import io, zipfile, re, asyncio
+    used, zbuf = set(), io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for u in units:
+            try:
+                data = await _plot_report_data(u["unit_id"])
+                pdf = await asyncio.to_thread(_build_report_pdf, data)
+            except Exception:
+                continue
+            safe = re.sub(r"[^A-Za-z0-9\-_]", "_", str(u.get("plot_number") or u["unit_id"])) or "plot"
+            name, i = f"Payment_Report_{safe}.pdf", 1
+            while name in used:
+                name = f"Payment_Report_{safe}_{i}.pdf"; i += 1
+            used.add(name)
+            zf.writestr(name, pdf)
+    proj_safe = re.sub(r"[^A-Za-z0-9\-_]", "_", proj.get("name", "project")) or "project"
+    from fastapi.responses import Response
+    return Response(content=zbuf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="Payment_Reports_{proj_safe}.zip"'})
 
 
 

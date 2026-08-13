@@ -17,6 +17,15 @@ export default function Sales() {
   const canViewPay = can(user, "post_sales", "accounts", "admin");
   const canPay = canViewPay;
   const [verifs, setVerifs] = useState([]);
+  const [zipping, setZipping] = useState(null);
+
+  const bulkZip = async (p) => {
+    setZipping(p.project_id);
+    toast.info("Preparing reports — this may take a moment…");
+    try { await downloadFile(`/projects/${p.project_id}/payment-reports.zip`, `Payment_Reports_${p.name}.zip`); }
+    catch (e) { toast.error(apiError(e)); }
+    finally { setZipping(null); }
+  };
 
   const load = async () => {
     try { const r = await api.get("/accounts/overview"); setOv(r.data); }
@@ -76,7 +85,15 @@ export default function Sales() {
           </div>
           {(plots.projects || []).map((p) => (
             <SectionCard key={p.project_id} title={`${p.name} · ${p.plot_count} plot(s)`} className="ag-rise"
-              action={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(p.pending)}</b></span>}>
+              action={<div className="flex items-center gap-4">
+                <span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(p.pending)}</b></span>
+                {can(user, "admin", "accounts") && p.plot_count > 0 && (
+                  <button onClick={() => bulkZip(p)} disabled={zipping === p.project_id} data-testid={`bulk-zip-${p.project_id}`}
+                    className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1 disabled:opacity-50">
+                    <Download className="w-3.5 h-3.5" /> {zipping === p.project_id ? "Preparing…" : "All reports (ZIP)"}
+                  </button>
+                )}
+              </div>}>
               <div className="overflow-x-auto"><table className="w-full">
                 <thead><tr className="border-b border-line bg-surfacealt/40">
                   <th className="th">Plot</th><th className="th">Buyer</th><th className="th">Instalments</th>
