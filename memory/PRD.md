@@ -297,3 +297,16 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - ui.jsx Modal: Escape-to-close applies across all dialogs (Plot drilldown, Record/Correct payment, etc.).
 - Verified: testing agent iteration_22 = frontend 100%, zero bugs; all 4 tabs, drilldown, verify YES/NO, record-payment dialog, cancellations, PDF download, Escape-close, responsive all pass. DB restored sold=0/payments=0.
 - Remaining: P4 Procurement pipeline timeline + Team/access + role dashboards (Post Sales/Accounts/Site Manager/Management).
+
+---
+## PHASE 12 · Redesign PHASE 4 of 4 — Procurement + Team + role dashboards (2026-06) — REDESIGN PROGRAM COMPLETE
+- User choice: Procurement kept TABLE-FOCUSED (not a hero timeline) + a compact 4-step stage tracker (Site→Mgmt→Admin→Accounts) as the approval-state visualization. All logic/permissions/testids preserved (VISUAL ONLY).
+- Procurement.jsx: editorial header + Active queue/History as clean .panel + .hairline TABLES (Request / Priority / Stage / Est. value / Documents / Action). New StageTrack dots (done=plate, active=lime ring, todo=grey) keyed off REACHED map by status; rejected shows a red inline chip. Notes + milestone chips nested in the Request cell. All dialogs (New/Action/PO/Milestone) kept, borders swapped agborder→line; StageTrack also shown in ActionDialog.
+- Users.jsx: editorial 'Team' header with Meta counts (Members / Awaiting Setup) + hairline table + per-role colored chips (ROLE_TONE). AddMember + AccessModal unchanged in logic (management project + 6 perm-* checkboxes conditional).
+- Dashboards restyled to the AdminDashboard/Sales editorial DNA (overline + big serif greeting + AnimatedNumber/inrShort + .panel/.hairline/.kpi-value, grid-canvas hero where relevant):
+  - AccountsDashboard: 'Pending Collections · Portfolio' hero (collection-rate bar) + Received/Booked/Pending hero stack + per-project panels with progress bars.
+  - SiteManagerDashboard: 4-cell stat strip (Material/Low Stock/Open/Approved) + Low-Stock bars panel + Procurement requests panel. (Open now also counts pending_management/management_clarification.)
+  - ManagementDashboard: approvals KPI + AdminDashboard-style ProjectPanel (component bars) + Procurement-needs-approval + Site Bills.
+  - PostSalesDashboard: By-Project availability panels + Collections widget (7 filter chips, plate active pill) + Recent Sales; all collections logic/testids intact.
+- Verified: testing agent iteration_23 = frontend 100% (7/7), ZERO console/page errors. Admin approve on the seeded pending_admin request advanced status→approved and swapped Review→Issue PO (maker-checker intact). Role nav gating intact. Responsive 390px overflow=0 on /procurement + /users. DB restored clean (procurement=0, sold=0, payments=0, users=3).
+- ACTION FOR USER: Redeploy to push the full redesigned UI to production. The 4-phase 'Editorial Tech' redesign program is now COMPLETE across every page/dashboard.

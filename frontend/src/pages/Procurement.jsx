@@ -3,7 +3,37 @@ import { toast } from "sonner";
 import { Plus, Trash2, CheckCircle2, XCircle, HelpCircle, FileText, Receipt, Paperclip, Upload, FileCheck2, Layers } from "lucide-react";
 import { api, apiError, fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
-import { PageHeader, StatusPill, EmptyState, SectionCard, Modal, inr } from "@/components/ui";
+import { StatusPill, EmptyState, Modal, inr, inrShort } from "@/components/ui";
+
+const STAGES = ["Site", "Mgmt", "Admin", "Accounts"];
+// number of stages completed for a given status
+const REACHED = {
+  pending_management: 1, management_clarification: 1,
+  pending_admin: 2, pending_clarification: 2,
+  approved: 3, po_issued: 3, paid: 4,
+};
+
+function StageTrack({ status }) {
+  if (status === "rejected") {
+    return <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-bad"><XCircle className="w-3.5 h-3.5" /> Rejected</span>;
+  }
+  const reached = REACHED[status] ?? 0;
+  return (
+    <div className="flex items-center gap-1" title={STAGES.join(" → ")}>
+      {STAGES.map((label, i) => {
+        const done = i < reached;
+        const active = i === reached && reached < 4;
+        return (
+          <span key={label} className="flex items-center">
+            <span className="w-1.5 h-1.5 rounded-full transition-colors duration-300"
+              style={{ background: done ? "#1a1c18" : active ? "#ccff00" : "#e7e4dc", boxShadow: active ? "0 0 0 2px #1a1c18" : "none" }} />
+            {i < STAGES.length - 1 && <span className="w-4 h-[1.5px]" style={{ background: i < reached ? "#1a1c18" : "#e7e4dc" }} />}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function Procurement() {
   const { user } = useAuth();
@@ -35,23 +65,33 @@ export default function Procurement() {
   }[user?.role] || "";
 
   return (
-    <div data-testid="procurement-page">
-      <PageHeader overline="Site Procurement" title="Procurement" subtitle={subtitle}>
+    <div data-testid="procurement-page" className="space-y-10">
+      <header className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <div className="overline mb-3">Site Procurement</div>
+          <h1 className="font-display text-5xl sm:text-6xl font-medium tracking-tight text-ink leading-[0.95]">Procurement</h1>
+          {subtitle && <p className="text-sm text-ink2 mt-3 max-w-2xl leading-relaxed">{subtitle}</p>}
+        </div>
         {can(user, "site_manager", "admin") && (
           <button onClick={() => setShowNew(true)} className="btn-primary" data-testid="new-proc-btn"><Plus className="w-4 h-4" /> New request</button>
         )}
-      </PageHeader>
+      </header>
 
-      <div className="space-y-6">
-        <SectionCard title="Active queue" className="ag-rise" bodyClass="divide-y divide-agborder">
-          <ProcList rows={buckets.active} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} />
-        </SectionCard>
-        {buckets.done.length > 0 && (
-          <SectionCard title="History" className="ag-rise" bodyClass="divide-y divide-agborder">
-            <ProcList rows={buckets.done} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} />
-          </SectionCard>
-        )}
-      </div>
+      <section className="space-y-4">
+        <div className="overline">Active queue</div>
+        <div className="panel overflow-hidden ag-rise">
+          <ProcTable rows={buckets.active} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} />
+        </div>
+      </section>
+
+      {buckets.done.length > 0 && (
+        <section className="space-y-4">
+          <div className="overline">History</div>
+          <div className="panel overflow-hidden ag-rise">
+            <ProcTable rows={buckets.done} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} />
+          </div>
+        </section>
+      )}
 
       {showNew && <NewProcurement projects={projects} user={user} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
       {actionFor && <ActionDialog req={actionFor} onClose={() => setActionFor(null)} onSaved={() => { setActionFor(null); load(); }} />}
@@ -62,54 +102,88 @@ export default function Procurement() {
   );
 }
 
-function ProcList({ rows, projName, user, onAction, onPo, onMs }) {
+function ProcTable({ rows, projName, user, onAction, onPo, onMs }) {
   if (rows.length === 0) return <EmptyState icon={FileText} title="Nothing here" hint="Requests appear in this queue." />;
   const total = (r) => (r.milestones?.length
     ? r.milestones.reduce((s, m) => s + Number(m.amount || 0), 0)
     : (r.items || []).reduce((s, i) => s + Number(i.est_cost || 0) * Number(i.quantity || 0), 0));
-  return rows.map((r) => (
-    <div key={r.request_id} className="px-5 py-4" data-testid={`proc-row-${r.request_id}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-display text-lg font-bold text-ink">{r.subject}</span>
-            <StatusPill status={r.priority} dot={false} />
-            <StatusPill status={r.status} />
-          </div>
-          <div className="text-xs text-ink2 mt-1">{projName(r.project_id)} · {(r.items || []).length} item(s) · Est. {inr(total(r))}{r.po_number ? ` · PO ${r.po_number}` : ""}</div>
-          {r.admin_note && <div className="text-xs text-clay mt-1">Admin: {r.admin_note}</div>}
-          {r.mgmt_note && <div className="text-xs text-clay mt-1">Management: {r.mgmt_note}</div>}
-          <div className="flex items-center gap-3 mt-2">
-            {r.pi_file && <a href={fileUrl(r.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Performa Invoice</a>}
-            {r.po_file && <a href={fileUrl(r.po_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`po-link-${r.request_id}`}><FileCheck2 className="w-3.5 h-3.5" /> Purchase Order</a>}
-          </div>
-          {(r.milestones || []).length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {r.milestones.map((m, i) => (
-                <span key={i} className={`text-[11px] px-2 py-1 rounded-md border ${m.status === "paid" ? "border-ok/30 bg-ok/5 text-ok" : "border-agborder text-ink2"}`}>
-                  {m.label}: {inr(m.amount)} {m.status === "paid" ? "✓" : (m.due ? `· due ${m.due}` : "")}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status) && (
-            <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`mgmt-review-${r.request_id}`}>Review</button>
-          )}
-          {user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status) && (
-            <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`review-${r.request_id}`}>Review</button>
-          )}
-          {can(user, "accounts", "admin") && r.status === "approved" && (
-            <button onClick={() => onPo(r)} className="btn-primary text-xs py-1.5" data-testid={`po-${r.request_id}`}><Upload className="w-3.5 h-3.5" /> Issue PO</button>
-          )}
-          {can(user, "accounts", "admin") && ["po_issued", "paid"].includes(r.status) && (
-            <button onClick={() => onMs(r)} className="btn-primary text-xs py-1.5" data-testid={`ms-${r.request_id}`}><Layers className="w-3.5 h-3.5" /> Payment structure</button>
-          )}
-        </div>
-      </div>
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead><tr className="hairline">
+          <th className="th">Request</th>
+          <th className="th">Priority</th>
+          <th className="th">Stage</th>
+          <th className="th text-right">Est. value</th>
+          <th className="th">Documents</th>
+          <th className="th text-right">Action</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((r) => {
+            const notes = [r.admin_note && `Admin: ${r.admin_note}`, r.mgmt_note && `Management: ${r.mgmt_note}`].filter(Boolean);
+            const milestones = r.milestones || [];
+            const hasDetail = notes.length > 0 || milestones.length > 0;
+            return (
+              <tr key={r.request_id} className="row align-top border-b border-line last:border-0" data-testid={`proc-row-${r.request_id}`}>
+                <td className="td">
+                  <div className="font-display text-base font-medium text-ink leading-tight">{r.subject}</div>
+                  <div className="text-xs text-ink2 mt-0.5">{projName(r.project_id)} · {(r.items || []).length} item(s){r.po_number ? ` · PO ${r.po_number}` : ""}</div>
+                  {hasDetail && (
+                    <div className="mt-2 space-y-1.5">
+                      {notes.map((n, i) => <div key={i} className="text-xs text-clay">{n}</div>)}
+                      {milestones.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {milestones.map((m, i) => (
+                            <span key={i} className={`text-[11px] px-2 py-0.5 rounded-md border ${m.status === "paid" ? "border-ok/30 bg-ok/5 text-ok" : "border-line text-ink2"}`}>
+                              {m.label}: {inr(m.amount)} {m.status === "paid" ? "✓" : (m.due ? `· due ${m.due}` : "")}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </td>
+                <td className="td"><StatusPill status={r.priority} dot={false} /></td>
+                <td className="td">
+                  <StageTrack status={r.status} />
+                  <div className="mt-1.5"><StatusPill status={r.status} /></div>
+                </td>
+                <td className="td text-right font-mono-num text-ink whitespace-nowrap" title={inr(total(r))}>{inrShort(total(r))}</td>
+                <td className="td">
+                  <div className="flex flex-col gap-1.5">
+                    {r.pi_file && <a href={fileUrl(r.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Performa Invoice</a>}
+                    {r.po_file && <a href={fileUrl(r.po_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`po-link-${r.request_id}`}><FileCheck2 className="w-3.5 h-3.5" /> Purchase Order</a>}
+                    {!r.pi_file && !r.po_file && <span className="text-xs text-ink2">—</span>}
+                  </div>
+                </td>
+                <td className="td text-right whitespace-nowrap">
+                  <div className="flex items-center justify-end gap-2">
+                    {user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status) && (
+                      <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`mgmt-review-${r.request_id}`}>Review</button>
+                    )}
+                    {user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status) && (
+                      <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`review-${r.request_id}`}>Review</button>
+                    )}
+                    {can(user, "accounts", "admin") && r.status === "approved" && (
+                      <button onClick={() => onPo(r)} className="btn-primary text-xs py-1.5" data-testid={`po-${r.request_id}`}><Upload className="w-3.5 h-3.5" /> Issue PO</button>
+                    )}
+                    {can(user, "accounts", "admin") && ["po_issued", "paid"].includes(r.status) && (
+                      <button onClick={() => onMs(r)} className="btn-primary text-xs py-1.5" data-testid={`ms-${r.request_id}`}><Layers className="w-3.5 h-3.5" /> Payment structure</button>
+                    )}
+                    {!(user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status)) &&
+                     !(user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status)) &&
+                     !(can(user, "accounts", "admin") && ["approved", "po_issued", "paid"].includes(r.status)) &&
+                     <span className="text-xs text-ink2">—</span>}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
-  ));
+  );
 }
 
 function NewProcurement({ projects, user, onClose, onSaved }) {
@@ -162,7 +236,7 @@ function NewProcurement({ projects, user, onClose, onSaved }) {
 
       <div className="mt-4">
         <label className="label">Performa Invoice (PDF/image)</label>
-        <label className="flex items-center gap-2 border border-dashed border-agborder rounded-md px-4 py-3 cursor-pointer hover:border-brand transition-colors duration-300" data-testid="proc-pi-drop">
+        <label className="flex items-center gap-2 border border-dashed border-line rounded-md px-4 py-3 cursor-pointer hover:border-brand transition-colors duration-300" data-testid="proc-pi-drop">
           <Paperclip className="w-4 h-4 text-ink2" />
           <span className="text-sm text-ink2">{pi ? pi.name : "Attach the Performa Invoice"}</span>
           <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden onChange={(e) => setPi(e.target.files?.[0] || null)} data-testid="proc-pi-file" />
@@ -174,14 +248,14 @@ function NewProcurement({ projects, user, onClose, onSaved }) {
           <div className="overline text-ink">Items</div>
           <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="proc-add-item"><Plus className="w-3.5 h-3.5" /> Add row</button>
         </div>
-        <div className="border border-agborder rounded-md overflow-hidden">
+        <div className="border border-line rounded-md overflow-hidden">
           <div className="overflow-x-auto"><table className="w-full">
-            <thead><tr className="bg-surfacealt/60 border-b border-agborder">
+            <thead><tr className="bg-surfacealt/60 border-b border-line">
               <th className="th py-2">Name</th><th className="th py-2 text-right">Qty</th><th className="th py-2">Unit</th><th className="th py-2 text-right">Est. cost/unit</th><th></th>
             </tr></thead>
             <tbody>
               {items.map((it, i) => (
-                <tr key={i} className="border-b border-agborder last:border-0">
+                <tr key={i} className="border-b border-line last:border-0">
                   <td className="px-2 py-2"><input value={it.name} onChange={(e) => updRow(i, { name: e.target.value })} className="input" data-testid={`proc-name-${i}`} /></td>
                   <td className="px-2 py-2"><input type="number" value={it.quantity} onChange={(e) => updRow(i, { quantity: e.target.value })} className="input text-right w-20 font-mono-num" data-testid={`proc-qty-${i}`} /></td>
                   <td className="px-2 py-2"><input value={it.unit} onChange={(e) => updRow(i, { unit: e.target.value })} className="input w-20" /></td>
@@ -214,7 +288,7 @@ function ActionDialog({ req, onClose, onSaved }) {
   };
   const btn = (val, label, Icon, active) => (
     <button onClick={() => setAction(val)} data-testid={`act-${val}`}
-      className={`btn border transition-colors duration-200 ${action === val ? active : "border-agborder text-ink2 hover:bg-surfacealt"}`}>
+      className={`btn border transition-colors duration-200 ${action === val ? active : "border-line text-ink2 hover:bg-surfacealt"}`}>
       <Icon className="w-3.5 h-3.5" /> {label}
     </button>
   );
@@ -222,8 +296,9 @@ function ActionDialog({ req, onClose, onSaved }) {
     <Modal title="Review procurement" subtitle={req.subject} onClose={onClose}
       footer={<><button onClick={onClose} className="btn-secondary">Cancel</button>
         <button onClick={save} disabled={busy} className="btn-primary" data-testid="act-submit">{busy ? "Saving…" : "Confirm decision"}</button></>}>
+      <div className="mb-4"><StageTrack status={req.status} /></div>
       {req.pi_file && <a href={fileUrl(req.pi_file.file_id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-brand mb-4"><Paperclip className="w-4 h-4" /> View Performa Invoice</a>}
-      <div className="bg-surfacealt/60 border border-agborder rounded-md p-3 space-y-1 mb-4">
+      <div className="bg-surfacealt/60 border border-line rounded-md p-3 space-y-1 mb-4">
         {(req.items || []).map((i, idx) => <div key={idx} className="text-xs text-ink2">• {i.name} — <span className="font-mono-num">{i.quantity} {i.unit}</span> @ <span className="font-mono-num">{inr(i.est_cost)}</span></div>)}
       </div>
       <label className="label">Decision</label>
@@ -261,7 +336,7 @@ function PoDialog({ req, onClose, onSaved }) {
       <div><label className="label">PO number *</label>
         <input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} className="input font-mono-num" data-testid="po-number" /></div>
       <div className="mt-4"><label className="label">PO document (PDF/image)</label>
-        <label className="flex items-center gap-2 border border-dashed border-agborder rounded-md px-4 py-3 cursor-pointer hover:border-brand transition-colors duration-300" data-testid="po-drop">
+        <label className="flex items-center gap-2 border border-dashed border-line rounded-md px-4 py-3 cursor-pointer hover:border-brand transition-colors duration-300" data-testid="po-drop">
           <FileCheck2 className="w-4 h-4 text-ink2" />
           <span className="text-sm text-ink2">{po ? po.name : "Attach the signed PO"}</span>
           <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden onChange={(e) => setPo(e.target.files?.[0] || null)} data-testid="po-file" />
@@ -313,14 +388,14 @@ function MilestoneDialog({ req, user, onClose, onRefresh }) {
       footer={<><button onClick={onClose} className="btn-secondary">Close</button>
         <button onClick={saveStructure} disabled={busy} className="btn-primary" data-testid="ms-save">{busy ? "Saving…" : saved ? "Update structure" : "Save structure"}</button></>}>
       <div className="text-xs text-ink2 mb-3">Define milestones e.g. 50% advance on a date, 50% on completion. Mark each paid as accounts clears it.</div>
-      <div className="border border-agborder rounded-md overflow-hidden">
+      <div className="border border-line rounded-md overflow-hidden">
         <div className="overflow-x-auto"><table className="w-full">
-          <thead><tr className="bg-surfacealt/60 border-b border-agborder">
+          <thead><tr className="bg-surfacealt/60 border-b border-line">
             <th className="th py-2">Milestone</th><th className="th py-2 text-right">Amount</th><th className="th py-2">Due</th><th className="th py-2">Status</th><th></th>
           </tr></thead>
           <tbody>
             {ms.map((m, i) => (
-              <tr key={i} className="border-b border-agborder last:border-0">
+              <tr key={i} className="border-b border-line last:border-0">
                 <td className="px-2 py-2"><input value={m.label} onChange={(e) => updRow(i, { label: e.target.value })} className="input" placeholder="e.g. 50% advance" data-testid={`ms-label-${i}`} disabled={m.status === "paid"} /></td>
                 <td className="px-2 py-2"><input type="number" value={m.amount} onChange={(e) => updRow(i, { amount: e.target.value })} className="input text-right w-32 font-mono-num" data-testid={`ms-amt-${i}`} disabled={m.status === "paid"} /></td>
                 <td className="px-2 py-2"><input type="date" value={m.due || ""} onChange={(e) => updRow(i, { due: e.target.value })} className="input font-mono-num" disabled={m.status === "paid"} /></td>

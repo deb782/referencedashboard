@@ -3,9 +3,14 @@ import { toast } from "sonner";
 import { Plus, KeyRound, Trash2, Users as UsersIcon, SlidersHorizontal } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { ROLE_LABELS, MGMT_SECTIONS, useAuth } from "@/lib/auth";
-import { PageHeader, StatusPill, EmptyState, Modal } from "@/components/ui";
+import { StatusPill, EmptyState, Modal } from "@/components/ui";
 
 const emptyForm = { name: "", phone: "", email: "", role: "post_sales", project_id: "", permissions: [] };
+
+const ROLE_TONE = {
+  admin: "#1a1c18", accounts: "#a8763f", post_sales: "#4a533c",
+  site_manager: "#57534e", management: "#5a6b10",
+};
 
 export default function Users() {
   const { user: me } = useAuth();
@@ -50,29 +55,40 @@ export default function Users() {
     catch (e) { toast.error(apiError(e)); }
   };
 
-  const roleTone = { admin: "brand", accounts: "clay", post_sales: "moss", site_manager: "ink" };
+  const awaiting = rows.filter(u => u.must_reset_password).length;
 
   return (
-    <div data-testid="users-page">
-      <PageHeader overline="Access" title="Team" subtitle="Initial password is the phone number; each user resets on first login.">
-        {!readOnly && (
-          <button onClick={() => setShowForm(true)} className="btn-primary" data-testid="new-user-btn">
-            <Plus className="w-4 h-4" /> Add member
-          </button>
-        )}
-      </PageHeader>
+    <div data-testid="users-page" className="space-y-10">
+      <header className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <div className="overline mb-3">Access</div>
+          <h1 className="font-display text-5xl sm:text-6xl font-medium tracking-tight text-ink leading-[0.95]">Team</h1>
+          <p className="text-sm text-ink2 mt-3 max-w-xl leading-relaxed">Initial password is the phone number; each user resets on first login.</p>
+        </div>
+        <div className="flex items-center gap-8">
+          <Meta label="Members" value={rows.length} />
+          <Meta label="Awaiting Setup" value={awaiting} accent />
+          {!readOnly && (
+            <button onClick={() => setShowForm(true)} className="btn-primary" data-testid="new-user-btn">
+              <Plus className="w-4 h-4" /> Add member
+            </button>
+          )}
+        </div>
+      </header>
 
-      <div className="card overflow-hidden ag-rise">
+      <div className="panel overflow-hidden ag-rise">
         <div className="overflow-x-auto"><table className="w-full">
-          <thead><tr className="border-b border-agborder bg-surfacealt/50">
+          <thead><tr className="hairline">
             <th className="th">Name</th><th className="th">Phone</th><th className="th">Role</th><th className="th">Project</th><th className="th">First login</th><th className="th text-right">Action</th>
           </tr></thead>
           <tbody>
-            {rows.map(u => (
-              <tr key={u.user_id} className="row" data-testid={`user-row-${u.user_id}`}>
-                <td className="td font-semibold">{u.name}</td>
+            {rows.map(u => {
+              const tone = ROLE_TONE[u.role] || "#57534e";
+              return (
+              <tr key={u.user_id} className="row border-b border-line last:border-0" data-testid={`user-row-${u.user_id}`}>
+                <td className="td font-medium text-ink">{u.name}</td>
                 <td className="td text-ink2 font-mono-num">{u.phone}</td>
-                <td className="td"><span className="pill" style={{ color: "#5a6b10", backgroundColor: "#5a6b1010", borderColor: "#5a6b1022" }}>{ROLE_LABELS[u.role]}</span></td>
+                <td className="td"><span className="pill" style={{ color: tone, backgroundColor: `${tone}12`, borderColor: `${tone}33` }}>{ROLE_LABELS[u.role]}</span></td>
                 <td className="td text-ink2">{["site_manager","management"].includes(u.role) ? projName(u.project_id) : "—"}</td>
                 <td className="td">{u.must_reset_password ? <StatusPill status="pending" label="Awaiting" /> : <StatusPill status="received" label="Done" />}</td>
                 <td className="td text-right whitespace-nowrap">
@@ -91,7 +107,7 @@ export default function Users() {
                   </>}
                 </td>
               </tr>
-            ))}
+            );})}
             {rows.length === 0 && <tr><td colSpan={6}><EmptyState icon={UsersIcon} title="No team members yet" hint="Add your accounts, post-sales and site-manager users." /></td></tr>}
           </tbody>
         </table></div>
@@ -134,7 +150,7 @@ export default function Users() {
                   {MGMT_SECTIONS.map(s => {
                     const on = form.permissions.includes(s.key);
                     return (
-                      <label key={s.key} className={`flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer transition-colors duration-200 ${on ? "border-brand bg-brand/5 text-ink" : "border-agborder text-ink2 hover:bg-surfacealt"}`} data-testid={`perm-${s.key}`}>
+                      <label key={s.key} className={`flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer transition-colors duration-200 ${on ? "border-brand bg-brand/5 text-ink" : "border-line text-ink2 hover:bg-surfacealt"}`} data-testid={`perm-${s.key}`}>
                         <input type="checkbox" checked={on} onChange={() => setForm({...form, permissions: on ? form.permissions.filter(x => x !== s.key) : [...form.permissions, s.key]})} />
                         {s.label}
                       </label>
@@ -149,6 +165,15 @@ export default function Users() {
       )}
 
       {accessFor && <AccessModal u={accessFor} projects={projects} onClose={() => setAccessFor(null)} onSaved={() => { setAccessFor(null); load(); }} />}
+    </div>
+  );
+}
+
+function Meta({ label, value, accent }) {
+  return (
+    <div className="text-right">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-ink2 font-semibold">{label}</div>
+      <div className={`kpi-value text-3xl mt-1 ${accent ? "text-clay" : "text-ink"}`}>{value}</div>
     </div>
   );
 }
@@ -181,7 +206,7 @@ function AccessModal({ u, projects, onClose, onSaved }) {
           {MGMT_SECTIONS.map(s => {
             const on = perms.includes(s.key);
             return (
-              <label key={s.key} className={`flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer transition-colors duration-200 ${on ? "border-brand bg-brand/5 text-ink" : "border-agborder text-ink2 hover:bg-surfacealt"}`} data-testid={`access-perm-${s.key}`}>
+              <label key={s.key} className={`flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer transition-colors duration-200 ${on ? "border-brand bg-brand/5 text-ink" : "border-line text-ink2 hover:bg-surfacealt"}`} data-testid={`access-perm-${s.key}`}>
                 <input type="checkbox" checked={on} onChange={() => toggle(s.key)} />
                 {s.label}
               </label>
