@@ -157,6 +157,13 @@ export function LinkPill({ to, children }) {
   );
 }
 
+export function projectLogo(name) {
+  const n = (name || "").toLowerCase();
+  if (n.includes("central vista")) return "/proj-cvf.png";
+  if (n.includes("vacation village")) return "/proj-vv.png";
+  return null;
+}
+
 export function ProjectSwitch({ projects, value, onChange, testid = "project-switch" }) {
   return (
     <div className="flex flex-wrap gap-1 p-1 rounded-xl border border-line bg-white" data-testid={testid}>

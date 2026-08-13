@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Upload, HandCoins, Plus, Home, Pencil, X, Check, Trash2, FileText } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
-import { EmptyState, Modal, inr, num2, ProjectSwitch } from "@/components/ui";
+import { EmptyState, Modal, inr, num2, ProjectSwitch, projectLogo } from "@/components/ui";
 import { ReportViewer } from "@/components/ReportViewer";
 
 const STATUS = {
@@ -86,7 +86,10 @@ function ProjectInventory({ project, user }) {
       <div className="p-6 lg:p-8 border-b border-line">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="font-display text-3xl font-medium text-ink tracking-tight">{project.name}</div>
+            <div className="flex items-center gap-3">
+              {projectLogo(project.name) && <img src={projectLogo(project.name)} alt={project.name} className="h-10 w-auto max-w-[180px] object-contain" data-testid={`project-logo-${project.project_id}`} />}
+              <div className="font-display text-3xl font-medium text-ink tracking-tight">{project.name}</div>
+            </div>
             <div className="text-xs text-ink2 mt-1">{project.kind || "Project"} · {units.length} plots</div>
           </div>
           {can(user, "admin") && (

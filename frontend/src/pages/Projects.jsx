@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Building2, MapPin, Home, IndianRupee, Check } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { EmptyState, Modal, inr, ProjectSwitch } from "@/components/ui";
+import { EmptyState, Modal, inr, ProjectSwitch, projectLogo } from "@/components/ui";
 const emptyForm = { name: "", location: "", kind: "", site_manager_id: "" };
 
 export default function Projects() {
@@ -126,8 +126,10 @@ function ProjectCard({ p, idx, count, admins, postSales, onDelete, onSaved, read
     <div className={`card overflow-hidden ag-rise ag-rise-${idx + 1}`} data-testid={`project-card-${p.project_id}`}>
       <div className="flex items-start justify-between px-6 py-5 border-b border-agborder bg-surfacealt/40">
         <div>
-          <div className="flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-brand" />
+          <div className="flex items-center gap-3">
+            {projectLogo(p.name)
+              ? <img src={projectLogo(p.name)} alt={p.name} className="h-9 w-auto max-w-[170px] object-contain" data-testid={`project-logo-${p.project_id}`} />
+              : <Building2 className="w-5 h-5 text-brand" />}
             <div className="font-display text-2xl font-bold text-ink tracking-tight">{p.name}</div>
           </div>
           <div className="text-xs text-ink2 mt-1">
