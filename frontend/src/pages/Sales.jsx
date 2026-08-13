@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download } from "lucide-react";
+import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
+import { ReportViewer } from "@/components/ReportViewer";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, SectionCard, Modal, inr } from "@/components/ui";
 
@@ -257,6 +258,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
     } catch (e) { toast.error(apiError(e)); }
   };
 
+  const [showReport, setShowReport] = useState(false);
   const downloadReport = async () => {
     try {
       toast.info("Generating report…");
@@ -269,9 +271,14 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
       subtitle={`Billed ${inr(billed)} · Verified received ${inr(paid)} · Awaiting ${inr(awaiting)} · Official balance ${inr(billed - paid)}`}
       onClose={onClose}
       footer={<div className="flex items-center justify-between w-full gap-2">
-        <button onClick={downloadReport} className="btn-secondary" data-testid={`download-report-${plot.unit_id}`}>
-          <Download className="w-4 h-4" /> Download Payment Report
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowReport(true)} className="btn-secondary" data-testid={`view-report-${plot.unit_id}`}>
+            <Eye className="w-4 h-4" /> View Payment Report
+          </button>
+          <button onClick={downloadReport} className="btn-secondary" data-testid={`download-report-${plot.unit_id}`}>
+            <Download className="w-4 h-4" /> Download
+          </button>
+        </div>
         <button onClick={onClose} className="btn-secondary">Close</button>
       </div>}>
       <div className="space-y-3">
@@ -322,6 +329,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
         <ReceiptDialog payment={dlg.payment} existing={dlg.existing} components={components}
           onClose={() => setDlg(null)} onSaved={() => { setDlg(null); load(); onChanged(); }} />
       )}
+      {showReport && <ReportViewer unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowReport(false)} />}
     </Modal>
   );
 }

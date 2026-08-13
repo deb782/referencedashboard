@@ -310,3 +310,14 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
   - PostSalesDashboard: By-Project availability panels + Collections widget (7 filter chips, plate active pill) + Recent Sales; all collections logic/testids intact.
 - Verified: testing agent iteration_23 = frontend 100% (7/7), ZERO console/page errors. Admin approve on the seeded pending_admin request advanced status→approved and swapped Review→Issue PO (maker-checker intact). Role nav gating intact. Responsive 390px overflow=0 on /procurement + /users. DB restored clean (procurement=0, sold=0, payments=0, users=3).
 - ACTION FOR USER: Redeploy to push the full redesigned UI to production. The 4-phase 'Editorial Tech' redesign program is now COMPLETE across every page/dashboard.
+
+---
+## PHASE 13 · Workflow + UX enhancements batch (2026-06)
+- **Procurement approval reorder** (backend + frontend): flow is now **Site Manager → Admin → Management → Accounts**. Admin approves FIRST; if the project has a Management user assigned, it moves to `pending_management`, else short-circuits to `approved`. Management approval then sets `approved` → Accounts (PO + milestones). server.py: create_procurement always starts `pending_admin`+notifies admin; `/action` approve computes pending_management-vs-approved; `/mgmt-action` approve → approved+notify accounts. Frontend StageTrack reordered to Site→Admin→Mgmt→Accounts (REACHED map updated). Verified via curl (both paths) + testing agent.
+- **View Payment Report (in-app PDF modal)**: new `components/ReportViewer.jsx` fetches `/units/<id>/payment-report` as a blob and shows it in an embedded iframe inside a Modal (new `2xl` size) with a Download button. Added `fetchPdfUrl()` to api.js. Wired into (a) Units sold-plot tiles (icon `view-report-<plot>`, all roles except site_manager) and (b) Sales plot drilldown footer next to Download (`view-report-<unitId>`).
+- **Project switch** (`ProjectSwitch` in ui.jsx): both Projects and Units pages now show a top segmented toggle and render ONE project at a time (removes long scroll). testid `project-switch` / `project-switch-<id>`.
+- **Auto-logout**: 5-min inactivity timer in Layout.jsx (mouse/keydown/scroll/touch/click reset) → toast + logout.
+- **Team column**: Projects column shows 'All projects' for non project-scoped roles (was '—').
+- **Login redesign**: split dark/light layout matching user screenshot — left dark panel with group-logo lockup + 'Real-time visibility…' tagline + lime accent dot + brand tile; right Sign in form.
+- Verified: testing agent iteration_24 = frontend 100% (11/11), zero console errors. DB restored clean (users 3, sold 0, payments 0, procurement 0).
+- ACTION FOR USER: Redeploy to push these changes to production.

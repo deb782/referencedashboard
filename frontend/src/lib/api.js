@@ -38,6 +38,11 @@ export function fileUrl(fileId) {
   return `${API_BASE}/api/files/${fileId}/download?token=${encodeURIComponent(token || "")}`;
 }
 
+export async function fetchPdfUrl(path) {
+  const res = await api.get(path, { responseType: "blob" });
+  return window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+}
+
 export async function downloadFile(path, filename) {
   const res = await api.get(path, { responseType: "blob" });
   const url = window.URL.createObjectURL(

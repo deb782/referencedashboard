@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Upload, HandCoins, Plus, Home, Pencil, X, Check, Trash2 } from "lucide-react";
+import { Upload, HandCoins, Plus, Home, Pencil, X, Check, Trash2, FileText } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
-import { EmptyState, Modal, inr, num2 } from "@/components/ui";
+import { EmptyState, Modal, inr, num2, ProjectSwitch } from "@/components/ui";
+import { ReportViewer } from "@/components/ReportViewer";
 
 const STATUS = {
   available: { dot: "#5a6b10", label: "Available" },
@@ -23,20 +24,25 @@ const TAG_OPTIONS = [
 export default function Units() {
   const { user } = useAuth();
   const [projects, setProjects] = useState([]);
+  const [sel, setSel] = useState(null);
 
-  useEffect(() => { api.get("/projects").then(r => setProjects(r.data)); }, []);
+  useEffect(() => { api.get("/projects").then(r => { setProjects(r.data); setSel(r.data[0]?.project_id || null); }); }, []);
+
+  const active = projects.find(p => p.project_id === sel);
 
   return (
-    <div data-testid="units-page" className="space-y-10">
-      <header>
-        <div className="overline mb-3">Plot Inventory</div>
-        <h1 className="font-display text-5xl sm:text-6xl font-medium tracking-tight text-ink leading-[0.95]">Units</h1>
-        <p className="text-sm text-ink2 mt-3 max-w-xl">A live map of every plot across your projects — availability, extent and the premiums that apply.</p>
+    <div data-testid="units-page" className="space-y-8">
+      <header className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <div className="overline mb-3">Plot Inventory</div>
+          <h1 className="font-display text-5xl sm:text-6xl font-medium tracking-tight text-ink leading-[0.95]">Units</h1>
+          <p className="text-sm text-ink2 mt-3 max-w-xl">A live map of every plot across your projects — availability, extent and the premiums that apply.</p>
+        </div>
+        {projects.length > 1 && <ProjectSwitch projects={projects} value={sel} onChange={setSel} />}
       </header>
-      <div className="space-y-10">
-        {projects.map((p) => <ProjectInventory key={p.project_id} project={p} user={user} />)}
-        {projects.length === 0 && <div className="panel"><EmptyState icon={Home} title="No projects" hint="Create a project first." /></div>}
-      </div>
+      {active
+        ? <ProjectInventory key={active.project_id} project={active} user={user} />
+        : <div className="panel"><EmptyState icon={Home} title="No projects" hint="Create a project first." /></div>}
     </div>
   );
 }
@@ -48,6 +54,7 @@ function ProjectInventory({ project, user }) {
   const [plotDlg, setPlotDlg] = useState(null);
   const [sellFor, setSellFor] = useState(null);
   const [cancelFor, setCancelFor] = useState(null);
+  const [reportFor, setReportFor] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
 
@@ -140,7 +147,7 @@ function ProjectInventory({ project, user }) {
             {shown.map(u => (
               <PlotTile key={u.unit_id} u={u} extent={extentOf(u)} plcs={applicablePlcs(u)} user={user}
                 onEdit={() => setPlotDlg({ mode: "edit", unit: u })}
-                onSell={() => setSellFor(u)} onCancel={() => setCancelFor(u)} />
+                onSell={() => setSellFor(u)} onCancel={() => setCancelFor(u)} onReport={() => setReportFor(u)} />
             ))}
           </div>
           {shown.length === 0 && <div className="text-sm text-ink2 py-10 text-center">No {filter} plots.</div>}
@@ -152,6 +159,7 @@ function ProjectInventory({ project, user }) {
                     onClose={() => setPlotDlg(null)} onSaved={() => { setPlotDlg(null); load(); }} />}
       {sellFor && <SellDialog unit={sellFor} columns={cols} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
       {cancelFor && <CancelDialog unit={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
+      {reportFor && <ReportViewer unitId={reportFor.unit_id} plotNumber={reportFor.plot_number} onClose={() => setReportFor(null)} />}
     </section>
   );
 }
@@ -166,9 +174,10 @@ function Legend({ dot, label, n }) {
   );
 }
 
-function PlotTile({ u, extent, plcs, user, onEdit, onSell, onCancel }) {
+function PlotTile({ u, extent, plcs, user, onEdit, onSell, onCancel, onReport }) {
   const st = STATUS[u.status] || STATUS.available;
   const actionable = can(user, "admin", "post_sales");
+  const canReport = user && user.role !== "site_manager" && u.status === "sold";
   return (
     <div data-testid={`unit-row-${u.plot_number}`}
       className="group relative rounded-xl border border-line bg-white p-4 hover:border-ink/25 hover:shadow-[0_10px_30px_-14px_rgba(20,21,20,0.18)] transition-all duration-200">
@@ -192,17 +201,24 @@ function PlotTile({ u, extent, plcs, user, onEdit, onSell, onCancel }) {
           {plcs.length > 2 && <span className="text-[10px] text-ink2 self-center" title={plcs.slice(2).map(c => c.label).join(", ")}>+{plcs.length - 2}</span>}
         </div>
       )}
-      {actionable && (
-        <div className="mt-3 pl-2 flex items-center gap-2 pt-3 border-t border-line/70">
-          <button onClick={onEdit} data-testid={`edit-plot-${u.plot_number}`} className="text-ink2 hover:text-brand transition-colors duration-200" title="Edit plot">
-            <Pencil className="w-4 h-4" />
-          </button>
-          {u.status === "available" && (
+      {(actionable || canReport) && (
+        <div className="mt-3 pl-2 flex items-center gap-3 pt-3 border-t border-line/70">
+          {actionable && (
+            <button onClick={onEdit} data-testid={`edit-plot-${u.plot_number}`} className="text-ink2 hover:text-brand transition-colors duration-200" title="Edit plot">
+              <Pencil className="w-4 h-4" />
+            </button>
+          )}
+          {canReport && (
+            <button onClick={onReport} data-testid={`view-report-${u.plot_number}`} className="text-ink2 hover:text-brand transition-colors duration-200" title="View payment report">
+              <FileText className="w-4 h-4" />
+            </button>
+          )}
+          {actionable && u.status === "available" && (
             <button onClick={onSell} data-testid={`sell-${u.plot_number}`} className="btn-primary text-xs py-1 px-2.5 ml-auto">
               <HandCoins className="w-3.5 h-3.5" /> Sell
             </button>
           )}
-          {u.status === "sold" && can(user, "admin") && (
+          {actionable && u.status === "sold" && can(user, "admin") && (
             <button onClick={onCancel} data-testid={`cancel-${u.plot_number}`} className="text-ink2 hover:text-bad ml-auto transition-colors duration-200" title="Cancel booking">
               <Trash2 className="w-4 h-4" />
             </button>

@@ -30,18 +30,28 @@ export default function Login() {
       {/* Left: dark editorial brand canvas */}
       <div className="relative hidden lg:flex flex-col justify-between p-14 bg-plate text-white overflow-hidden">
         <div className="grid-canvas absolute inset-0 opacity-[0.12]" style={{ backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)" }} />
-        <div className="relative">
-          <img src="/group-logo-white.webp" alt="Agrocorp · Vacation Village · Landshare" className="h-16 w-auto" />
+        <span className="absolute left-14 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ background: "#ccff00" }} />
+
+        {/* Brand */}
+        <div className="relative flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+            <img src="/agrocorp-arch-white.webp" alt="" className="w-6 h-6 object-contain" />
+          </div>
+          <div className="leading-none">
+            <div className="font-display text-lg font-semibold tracking-tight">Management Dashboard</div>
+            <div className="text-[9.5px] uppercase tracking-[0.22em] text-white/50 font-semibold mt-1.5">Stakeholder Console</div>
+          </div>
         </div>
-        <div className="relative max-w-xl">
-          <div className="w-2 h-2 rounded-full mb-8" style={{ background: "#ccff00" }} />
-          <h1 className="font-display text-5xl xl:text-6xl font-medium leading-[1.02] tracking-tight">
-            The operating system for how we build, sell and manage land.
-          </h1>
-          <p className="text-white/60 mt-8 text-[15px] leading-relaxed max-w-md">
-            Real-time visibility into financial, operational, sales and project performance — one precise console for the whole group.
+
+        {/* Center lockup */}
+        <div className="relative flex flex-col items-center justify-center text-center px-8">
+          <img src="/group-logo-white.webp" alt="Agrocorp · Vacation Village · Landshare — real estate reimagined" className="w-auto max-h-40 xl:max-h-48 object-contain" />
+          <p className="text-white/60 mt-10 text-sm leading-relaxed max-w-md">
+            Real-time visibility into financial, operational, sales, and project performance.
           </p>
         </div>
+
+        {/* Footer */}
         <div className="relative text-[11px] uppercase tracking-[0.22em] text-white/40 font-semibold">
           Agrocorp · Vacation Village · Landshare
         </div>

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Building2, MapPin, Home, IndianRupee, Check } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { EmptyState, Modal, inr } from "@/components/ui";
+import { EmptyState, Modal, inr, ProjectSwitch } from "@/components/ui";
 const emptyForm = { name: "", location: "", kind: "", site_manager_id: "" };
 
 export default function Projects() {
@@ -14,10 +14,12 @@ export default function Projects() {
   const [counts, setCounts] = useState({});
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [sel, setSel] = useState(null);
 
   const load = async () => {
     const [p, d] = await Promise.all([api.get("/projects"), api.get("/dashboard")]);
     setRows(p.data);
+    setSel(prev => prev || p.data[0]?.project_id || null);
     try { const u = await api.get("/users"); setUsers(u.data); } catch { setUsers([]); }
     const map = {};
     (d.data?.by_project || []).forEach(bp => { map[bp.project_id] = bp; });
@@ -62,11 +64,16 @@ export default function Projects() {
       {rows.length === 0 ? (
         <div className="panel"><EmptyState icon={Building2} title="No projects yet" hint="Create your first project to start uploading units." /></div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {rows.map((p, i) => (
-            <ProjectCard key={p.project_id} p={p} idx={i} count={counts[p.project_id]}
-              admins={admins} postSales={postSales} onDelete={remove} onSaved={load} readOnly={readOnly} />
-          ))}
+        <div className="space-y-6">
+          {rows.length > 1 && <ProjectSwitch projects={rows} value={sel} onChange={setSel} />}
+          {(() => {
+            const p = rows.find(x => x.project_id === sel) || rows[0];
+            const i = rows.findIndex(x => x.project_id === p.project_id);
+            return (
+              <ProjectCard key={p.project_id} p={p} idx={i} count={counts[p.project_id]}
+                admins={admins} postSales={postSales} onDelete={remove} onSaved={load} readOnly={readOnly} />
+            );
+          })()}
         </div>
       )}
 

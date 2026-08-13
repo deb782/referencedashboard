@@ -5,11 +5,11 @@ import { api, apiError, fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, Modal, inr, inrShort } from "@/components/ui";
 
-const STAGES = ["Site", "Mgmt", "Admin", "Accounts"];
+const STAGES = ["Site", "Admin", "Mgmt", "Accounts"];
 // number of stages completed for a given status
 const REACHED = {
-  pending_management: 1, management_clarification: 1,
-  pending_admin: 2, pending_clarification: 2,
+  pending_admin: 1, pending_clarification: 1,
+  pending_management: 2, management_clarification: 2,
   approved: 3, po_issued: 3, paid: 4,
 };
 
@@ -59,8 +59,8 @@ export default function Procurement() {
 
   const subtitle = {
     site_manager: "Raise a request with a Performa Invoice → management & admin approve → accounts issue a PO you can download.",
-    management: "Give primary approval to site procurement requests. Approved requests move to Admin for final sign-off.",
-    admin: "Give final approval to requests; accounts then issue POs and set the payment structure.",
+    management: "Give approval to admin-cleared procurement requests. Once you approve, accounts issue the PO and payment structure.",
+    admin: "Give the first approval to site requests. Approved requests move to Management, then Accounts for PO & payment.",
     accounts: "Approved → issue a PO (upload the document) → set milestone payment structure → mark milestones paid.",
   }[user?.role] || "";
 

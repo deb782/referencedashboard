@@ -5,6 +5,7 @@ import {
   HandCoins, Package, Boxes, Bell, LogOut, Menu, X, Search,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 import { useAuth, ROLE_LABELS } from "@/lib/auth";
 import CommandPalette from "@/components/CommandPalette";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -54,6 +55,17 @@ export default function Layout({ children }) {
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("mousedown", onClick); document.removeEventListener("keydown", onKey); };
   }, []);
+
+  useEffect(() => {
+    const TIMEOUT = 5 * 60 * 1000;
+    let timer;
+    const doLogout = () => { toast.error("Signed out due to inactivity"); logout(); };
+    const reset = () => { clearTimeout(timer); timer = setTimeout(doLogout, TIMEOUT); };
+    const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => { clearTimeout(timer); events.forEach((e) => window.removeEventListener(e, reset)); };
+  }, [logout]);
 
   const unread = notifs.filter(n => !n.is_read).length;
   const markAll = async () => { await api.post("/notifications/read-all"); load(); };

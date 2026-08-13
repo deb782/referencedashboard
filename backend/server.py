@@ -1705,24 +1705,16 @@ async def create_procurement(
     if not item_list:
         raise HTTPException(400, "At least one item is required")
     pi_ref = await save_upload(file, "procurement/pi", user.user_id) if file else None
-    mgmt = await db.users.find_one(
-        {"role": "management", "project_id": project_id, "is_active": True},
-        {"_id": 0, "user_id": 1})
     r = ProcurementRequest(
         project_id=project_id, subject=subject,
         items=[ProcurementItem(**i) for i in item_list],
         priority=priority, notes=notes, requested_by=user.user_id, pi_file=pi_ref,
-        status="pending_management" if mgmt else "pending_admin")
+        status="pending_admin")
     await db.procurement.insert_one(r.model_dump())
     proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
-    if mgmt:
-        await notify(mgmt["user_id"], "procurement_new",
-                     f"Procurement request · {subject} · {proj.get('name','')} · "
-                     f"Priority: {priority} — needs your primary approval", "/procurement")
-    else:
-        await notify_role("admin", "procurement_new",
-                          f"Procurement request · {subject} · {proj.get('name','')} · "
-                          f"Priority: {priority}", "/procurement")
+    await notify_role("admin", "procurement_new",
+                      f"Procurement request · {subject} · {proj.get('name','')} · "
+                      f"Priority: {priority} — needs your approval", "/procurement")
     return r.model_dump()
 
 
@@ -1829,8 +1821,12 @@ async def admin_action_procurement(request_id: str, payload: AdminAction,
         raise HTTPException(404, "Request not found")
     if doc["status"] not in ("pending_admin", "pending_clarification"):
         raise HTTPException(400, f"Cannot act on request in status {doc['status']}")
+    mgmt = None
     if payload.action == "approve":
-        new_status = "approved"
+        mgmt = await db.users.find_one(
+            {"role": "management", "project_id": doc["project_id"], "is_active": True},
+            {"_id": 0, "user_id": 1})
+        new_status = "pending_management" if mgmt else "approved"
     elif payload.action == "reject":
         new_status = "rejected"
     else:
@@ -1846,7 +1842,12 @@ async def admin_action_procurement(request_id: str, payload: AdminAction,
         msg += f" · {payload.note}"
     await notify(doc["requested_by"], f"procurement_{payload.action}",
                  msg, "/procurement")
-    if new_status == "approved":
+    proj = await db.projects.find_one({"project_id": doc["project_id"]}, {"_id": 0}) or {}
+    if new_status == "pending_management" and mgmt:
+        await notify(mgmt["user_id"], "procurement_new",
+                     f"Procurement request · {doc['subject']} · {proj.get('name','')} — "
+                     f"admin approved, needs your approval", "/procurement")
+    elif new_status == "approved":
         await notify_role("accounts", "procurement_approved",
                           f"Approved procurement ready for PO/payment · "
                           f"{doc['subject']}", "/procurement")
@@ -1867,7 +1868,7 @@ async def mgmt_action_procurement(request_id: str, payload: MgmtAction,
     if payload.action != "approve" and not payload.note.strip():
         raise HTTPException(400, "A note is required for reject / clarification")
     if payload.action == "approve":
-        new_status = "pending_admin"
+        new_status = "approved"
     elif payload.action == "reject":
         new_status = "rejected"
     else:
@@ -1882,11 +1883,10 @@ async def mgmt_action_procurement(request_id: str, payload: MgmtAction,
     if payload.note:
         msg += f" · {payload.note}"
     await notify(doc["requested_by"], f"procurement_mgmt_{payload.action}", msg, "/procurement")
-    if new_status == "pending_admin":
-        proj = await db.projects.find_one({"project_id": doc["project_id"]}, {"_id": 0}) or {}
-        await notify_role("admin", "procurement_new",
-                          f"Procurement request · {doc['subject']} · {proj.get('name','')} — "
-                          f"management approved, needs final approval", "/procurement")
+    if new_status == "approved":
+        await notify_role("accounts", "procurement_approved",
+                          f"Approved procurement ready for PO/payment · "
+                          f"{doc['subject']}", "/procurement")
     return {"ok": True, "status": new_status}
 
 

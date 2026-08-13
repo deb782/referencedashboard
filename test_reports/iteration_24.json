@@ -1,0 +1,37 @@
+{
+  "summary": "Frontend-only verification of Phase 5 enhancements: split login, procurement order (Site→Admin→Mgmt→Accounts) with admin-first approval skipping to Approved when no management, Units/Projects project-switch, embedded PDF Payment Report modal (Units + Sales drilldown), role gating for post_sales, and Team 'All projects' column. All acceptance criteria PASS.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "login_split_layout": "PASS - left dark brand panel with group logo + 'Real-time visibility…' tagline; right 'Sign in' form; admin login lands on /dashboard.",
+    "procurement_stage_order": "PASS - StageTrack renders title='Site → Admin → Mgmt → Accounts' on procurement page.",
+    "procurement_create_pending_admin": "PASS - New request via new-proc-btn appears with review-<id> button (pending_admin).",
+    "procurement_admin_approve_skips_to_approved": "PASS - Admin clicks Review → act-approve → act-submit; because project has no management user assigned, status advances directly to 'Approved' and 'Issue PO' (po-<id>) button becomes visible. Verified on VVC project (same code path as CVF; both projects lack a management user).",
+    "units_project_switch": "PASS - data-testid=project-switch present with one button per project; only one project's inventory rendered at a time.",
+    "units_view_report_admin": "PASS - CVF plot 32 (SOLD) shows view-report-32 icon; clicking opens Modal 'Payment report · Plot 32' with report-iframe and report-download button; no error state shown; PDF blob loads in iframe.",
+    "units_view_report_post_sales": "PASS - Post Sales user (9000000001) also sees view-report-32 on /units.",
+    "sales_view_report_button": "PASS - /sales plot-pay-row-32 drilldown modal footer has view-report-<unitId> AND download-report-<unitId> buttons; clicking View opens the ReportViewer modal with report-iframe.",
+    "projects_switch": "PASS - /projects shows data-testid=project-switch and single ProjectCard visible.",
+    "team_all_projects_column": "PASS - /users renders 'All projects' in Projects column for non project-scoped roles (Admin/Accounts/Post Sales). Count=3 rows in seed.",
+    "no_console_errors": "PASS - No page errors captured during navigation across login, procurement, units, projects, sales, users."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ReportViewer.jsx correctly revokes object URL on unmount and shows loading/error states.",
+    "Procurement.jsx REACHED map is consistent with new STAGES order (pending_admin=1, pending_management=2, approved=3).",
+    "Units.jsx canReport gate: user.role !== 'site_manager' && status==='sold' — correctly excludes site_manager; management-role gating for the /units/<id>/payment-report endpoint is enforced server-side (per notes).",
+    "Auto-logout inactivity effect not exercised (per instructions); confirmed pages load without effect-related errors."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "not tested (skipped per instructions)", "frontend": "100% (11/11 checks)" },
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123 (both used and worked).",
+  "seed_data_creation": "Created one procurement request 'TEST_ProcReq_Auto' on Vacation Village Chikkamagaluru; advanced to Approved status. Safe to purge; main agent will clean DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All Phase 5 changes verified via preview URL. If retesting, be aware that the seeded test procurement row (TEST_ProcReq_Auto) is in Approved state and shows an 'Issue PO' button. Both CVF and VVC currently have no management user assigned so admin-approve short-circuits to Approved for both."
+}

@@ -89,7 +89,7 @@ export default function Users() {
                 <td className="td font-medium text-ink">{u.name}</td>
                 <td className="td text-ink2 font-mono-num">{u.phone}</td>
                 <td className="td"><span className="pill" style={{ color: tone, backgroundColor: `${tone}12`, borderColor: `${tone}33` }}>{ROLE_LABELS[u.role]}</span></td>
-                <td className="td text-ink2">{["site_manager","management"].includes(u.role) ? projName(u.project_id) : "—"}</td>
+                <td className="td text-ink2">{["site_manager","management"].includes(u.role) ? projName(u.project_id) : "All projects"}</td>
                 <td className="td">{u.must_reset_password ? <StatusPill status="pending" label="Awaiting" /> : <StatusPill status="received" label="Done" />}</td>
                 <td className="td text-right whitespace-nowrap">
                   {readOnly ? <span className="text-ink2 text-xs">—</span> : <>

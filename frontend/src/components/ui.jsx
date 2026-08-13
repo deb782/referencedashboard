@@ -157,8 +157,24 @@ export function LinkPill({ to, children }) {
   );
 }
 
+export function ProjectSwitch({ projects, value, onChange, testid = "project-switch" }) {
+  return (
+    <div className="flex flex-wrap gap-1 p-1 rounded-xl border border-line bg-white" data-testid={testid}>
+      {projects.map((p) => {
+        const on = p.project_id === value;
+        return (
+          <button key={p.project_id} onClick={() => onChange(p.project_id)} data-testid={`${testid}-${p.project_id}`}
+            className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors duration-200 ${on ? "bg-plate text-white" : "text-ink2 hover:bg-surfacealt"}`}>
+            {p.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Modal({ title, subtitle, onClose, children, footer, size = "md" }) {
-  const w = { sm: "max-w-md", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-3xl" }[size] || "max-w-lg";
+  const w = { sm: "max-w-md", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-3xl", "2xl": "max-w-5xl" }[size] || "max-w-lg";
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
     document.addEventListener("keydown", onKey);
