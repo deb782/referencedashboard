@@ -1524,7 +1524,7 @@ def _build_report_pdf(d: dict) -> bytes:
             pass
     head = Table([[brand or ""]], colWidths=[W])
     head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                              ("ALIGN", (0, 0), (0, 0), "LEFT")]))
+                              ("ALIGN", (0, 0), (0, 0), "CENTER")]))
     story += [head, Spacer(1, 6), HRFlowable(width="100%", color=OLIVE, thickness=1.4), Spacer(1, 8)]
 
     # Document title band

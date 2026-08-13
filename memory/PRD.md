@@ -338,3 +338,10 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
   - PDF letterhead stripped of extra branding: removed "AGROCORP GROUP" name, address and phone/email; header is now ONLY the per-project logo. Signature line no longer says "For Agrocorp Group".
   - Favicon set to the Agrocorp arch mark (white arch on dark rounded tile → `frontend/public/favicon.png`); browser tab title changed to "Management Console" in `public/index.html`.
   - Verified: PDF header confirmed logo-only with no company text/address/contact; total shows Rs. …43 decimals; page title/favicon confirmed. Redeploy to push live.
+
+---
+## PHASE 15 · Verification breakdown, white-screen hardening, PDF logo center (2026-06)
+- **Accounts see allocation breakdown**: `VerificationQueue` (Sales → Verification) now renders a sub-row per pending/returned/verified receipt showing each component allocation as chips (e.g., BSP: ₹4,23,000 · 18% GST: ₹77,000) + note + expected-remaining date. If no allocation was provided, shows "recorded as a lump-sum amount". Same chips also added to the PlotDrilldown receipt rows. Verified via seeded post-sales receipt + accounts screenshot.
+- **White-screen hardening** (reported on PRODUCTION, intermittent): the existing ErrorBoundary only wrapped page content inside Layout — a crash in Layout/Router/AuthProvider/Login produced a blank white screen. Added a ROOT ErrorBoundary in App.js wrapping all Routes, and `componentDidCatch` now console.errors `[AppError]` + component stack so the real cause is visible. NOTE: exact trigger not reproduced (intermittent, prod-only; likely stale-cache chunk after deploy or a prod-data render edge). If it recurs after redeploy, capture the `[AppError]` console line.
+- **PDF logo centered**: report letterhead logo alignment changed LEFT→CENTER. Verified via PDF structure analysis.
+- DB restored clean (sold 0, payments 0). Redeploy to push all to production.

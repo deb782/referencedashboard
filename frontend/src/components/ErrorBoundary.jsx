@@ -3,6 +3,11 @@ import { Component } from "react";
 export default class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    // Surface the real cause (helps diagnose blank/white screens in production)
+    // eslint-disable-next-line no-console
+    console.error("[AppError]", error, info?.componentStack);
+  }
   componentDidUpdate(prev) { if (prev.routeKey !== this.props.routeKey && this.state.error) this.setState({ error: null }); }
   render() {
     if (this.state.error) {

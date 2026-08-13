@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { toast } from "sonner";
 import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
@@ -325,6 +325,13 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
                         <span className="font-mono-num font-semibold text-ink">{inr(rc.amount)}</span>
                         <span className="text-ink2"> · {rc.date} · {rc.mode}{rc.head ? ` · ${rc.head}` : ""}{rc.notes ? ` · ${rc.notes}` : ""}</span>
                         {rc.verification_status === "returned" && rc.return_reason && <span className="text-bad"> · {rc.return_reason}</span>}
+                        {(rc.allocations || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {rc.allocations.map((a, i) => (
+                              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-line bg-white text-ink2 font-mono-num">{a.label || a.key}: {inr(a.amount)}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <VStatus s={rc.verification_status} />
@@ -486,7 +493,8 @@ function VerificationQueue({ rows, canVerify, onChanged }) {
             </tr></thead>
             <tbody>
               {list.map(r => (
-                <tr key={r.receipt_id} className="row" data-testid={`vq-${r.receipt_id}`}>
+                <Fragment key={r.receipt_id}>
+                <tr className="row border-b-0" data-testid={`vq-${r.receipt_id}`}>
                   <td className="td font-mono-num font-bold">{r.plot_number}<div className="text-[10px] text-ink2 font-sans">{r.project_name}</div></td>
                   <td className="td text-ink2">{r.buyer_name || "—"}</td>
                   <td className="td">{r.instalment}{r.return_reason && <div className="text-[10px] text-bad">↩ {r.return_reason}</div>}</td>
@@ -503,6 +511,25 @@ function VerificationQueue({ rows, canVerify, onChanged }) {
                     </td>
                   )}
                 </tr>
+                <tr className="border-b border-line" data-testid={`vq-breakdown-${r.receipt_id}`}>
+                  <td className="td pt-0 pb-3" colSpan={canVerify ? 8 : 7}>
+                    {(r.allocations || []).length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] uppercase tracking-[0.14em] font-semibold text-ink2 mr-1">Allocation breakdown</span>
+                        {r.allocations.map((a, i) => (
+                          <span key={i} data-testid={`vq-alloc-${r.receipt_id}-${a.key}`} className="text-[11px] px-2 py-0.5 rounded-md border border-line bg-surfacealt/60 text-ink font-mono-num">
+                            {a.label || a.key}: <b className="text-ink">{inr(a.amount)}</b>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-ink2 italic">No component breakdown provided — recorded as a lump-sum amount.</span>
+                    )}
+                    {r.notes && <div className="text-[11px] text-ink2 mt-1">Note: {r.notes}</div>}
+                    {r.expected_remaining_date && <div className="text-[11px] text-ink2 mt-0.5">Expected remaining by {r.expected_remaining_date}</div>}
+                  </td>
+                </tr>
+                </Fragment>
               ))}
             </tbody>
           </table></div>
