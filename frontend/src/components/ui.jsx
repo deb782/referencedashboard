@@ -1,8 +1,13 @@
 import { Link } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 
-export const inr = (n) =>
-  "\u20B9" + (Number(n) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const inr = (n) => {
+  const v = Number(n) || 0;
+  const hasDec = Math.abs(v - Math.trunc(v)) > 1e-9;
+  return "\u20B9" + v.toLocaleString("en-IN", hasDec
+    ? { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    : { maximumFractionDigits: 0 });
+};
 
 // Rolling number that interpolates on value change (respects reduced-motion)
 export function AnimatedNumber({ value, format = (v) => Math.round(v).toLocaleString("en-IN"), duration = 700, className = "" }) {
@@ -39,8 +44,13 @@ export const inrShort = (n) => {
   return sign + "\u20B9" + Math.round(a).toLocaleString("en-IN");
 };
 
-export const num2 = (n) =>
-  (Number(n) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const num2 = (n) => {
+  const v = Number(n) || 0;
+  const hasDec = Math.abs(v - Math.trunc(v)) > 1e-9;
+  return v.toLocaleString("en-IN", hasDec
+    ? { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    : { maximumFractionDigits: 0 });
+};
 
 export const inrCompact = (n) => {
   const v = Number(n) || 0;

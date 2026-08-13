@@ -1325,13 +1325,18 @@ async def correct_receipt(payment_id: str, receipt_id: str, payload: ReceiptCrea
 
 # ----- plot-wise payment report (PDF) -------------------------------------
 def _inr_plain(n) -> str:
-    """Indian-grouped rupee string that renders with core PDF fonts (Rs. prefix)."""
+    """Indian-grouped rupee string (Rs. prefix). Shows 2 decimals only when non-integer."""
     import re
-    v = int(round(_num(n)))
+    v = round(_num(n), 2)
     neg = v < 0
-    s = str(abs(v))
+    v = abs(v)
+    whole = int(v)
+    frac = int(round((v - whole) * 100))
+    s = str(whole)
     if len(s) > 3:
         s = re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", s[:-3]) + "," + s[-3:]
+    if frac:
+        s = s + ".%02d" % frac
     return ("-" if neg else "") + "Rs. " + s
 
 
@@ -1513,25 +1518,13 @@ def _build_report_pdf(d: dict) -> bytes:
     if os.path.exists(logo_path):
         try:
             img = RLImage(logo_path)
-            img._restrictSize(50 * mm, 26 * mm)
+            img._restrictSize(62 * mm, 28 * mm)
             brand.append(img)
         except Exception:
             pass
-    title_cell = [
-        Paragraph("AGROCORP GROUP", ParagraphStyle("t", fontName="Helvetica-Bold",
-                  fontSize=16, textColor=INK, leading=18)),
-        Paragraph("Agrocorp &nbsp;·&nbsp; Vacation Village &nbsp;·&nbsp; Landshare",
-                  ParagraphStyle("t2", fontName="Helvetica", fontSize=9, textColor=MUTE, spaceBefore=3)),
-        Paragraph("Real estate reimagined",
-                  ParagraphStyle("t3", fontName="Helvetica-Oblique", fontSize=8.5, textColor=OLIVE, spaceBefore=1)),
-        Paragraph("No.07 Level 3, Vista Pixel 8/2B &amp; 8/2C, Bellary Road Jakkuru, Bengaluru, 560092",
-                  ParagraphStyle("t4", fontName="Helvetica", fontSize=7.5, textColor=MUTE, leading=10, spaceBefore=4)),
-        Paragraph("T +91 9513242807 &nbsp;·&nbsp; info@agrocorp.co.in",
-                  ParagraphStyle("t5", fontName="Helvetica", fontSize=7.5, textColor=MUTE, leading=10, spaceBefore=1)),
-    ]
-    head = Table([[brand or "", title_cell]], colWidths=[52 * mm, W - 52 * mm])
+    head = Table([[brand or ""]], colWidths=[W])
     head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                              ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
+                              ("ALIGN", (0, 0), (0, 0), "LEFT")]))
     story += [head, Spacer(1, 6), HRFlowable(width="100%", color=OLIVE, thickness=1.4), Spacer(1, 8)]
 
     # Document title band
@@ -1664,7 +1657,7 @@ def _build_report_pdf(d: dict) -> bytes:
         return [Spacer(1, 30), HRFlowable(width=62 * mm, color=INK, thickness=0.6),
                 Paragraph(title, sig_label), Paragraph(sub, sig_sub)]
 
-    sig = Table([[sig_col("Authorised Signatory", "For Agrocorp Group"), "",
+    sig = Table([[sig_col("Authorised Signatory", ""), "",
                   sig_col("Customer Acknowledgement", d["customer"] or "Customer")]],
                 colWidths=[W * 0.42, W * 0.16, W * 0.42])
     sig.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
