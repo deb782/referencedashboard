@@ -3,7 +3,13 @@ import { toast } from "sonner";
 import { Upload, HandCoins, Plus, Home, Pencil, X, Check, Trash2 } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
-import { PageHeader, StatusPill, EmptyState, Modal, inr, num2 } from "@/components/ui";
+import { EmptyState, Modal, inr, num2 } from "@/components/ui";
+
+const STATUS = {
+  available: { dot: "#5a6b10", label: "Available" },
+  sold: { dot: "#a8763f", label: "Sold" },
+  booked: { dot: "#c8912f", label: "Booked" },
+};
 
 const TAG_OPTIONS = [
   { v: "plot_id", label: "Plot ID" },
@@ -21,12 +27,15 @@ export default function Units() {
   useEffect(() => { api.get("/projects").then(r => setProjects(r.data)); }, []);
 
   return (
-    <div data-testid="units-page">
-      <PageHeader overline="Plot Inventory" title="Units"
-        subtitle="Each plot shows its size and the location premiums (PLCs) that apply." />
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+    <div data-testid="units-page" className="space-y-10">
+      <header>
+        <div className="overline mb-3">Plot Inventory</div>
+        <h1 className="font-display text-5xl sm:text-6xl font-medium tracking-tight text-ink leading-[0.95]">Units</h1>
+        <p className="text-sm text-ink2 mt-3 max-w-xl">A live map of every plot across your projects — availability, extent and the premiums that apply.</p>
+      </header>
+      <div className="space-y-10">
         {projects.map((p) => <ProjectInventory key={p.project_id} project={p} user={user} />)}
-        {projects.length === 0 && <EmptyState icon={Home} title="No projects" hint="Create a project first." />}
+        {projects.length === 0 && <div className="panel"><EmptyState icon={Home} title="No projects" hint="Create a project first." /></div>}
       </div>
     </div>
   );
@@ -36,16 +45,21 @@ function ProjectInventory({ project, user }) {
   const [units, setUnits] = useState([]);
   const [cols, setCols] = useState(project.columns || []);
   const [wizard, setWizard] = useState(false);
-  const [plotDlg, setPlotDlg] = useState(null);   // {mode:'add'|'edit', unit}
+  const [plotDlg, setPlotDlg] = useState(null);
   const [sellFor, setSellFor] = useState(null);
   const [cancelFor, setCancelFor] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
 
   const load = async () => {
-    const r = await api.get("/units", { params: { project_id: project.project_id } });
-    setUnits(r.data);
-    const pr = await api.get("/projects");
-    const fresh = pr.data.find(x => x.project_id === project.project_id);
-    if (fresh) setCols(fresh.columns || []);
+    setLoading(true);
+    try {
+      const r = await api.get("/units", { params: { project_id: project.project_id } });
+      setUnits(r.data);
+      const pr = await api.get("/projects");
+      const fresh = pr.data.find(x => x.project_id === project.project_id);
+      if (fresh) setCols(fresh.columns || []);
+    } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, [project.project_id]);
 
@@ -53,88 +67,83 @@ function ProjectInventory({ project, user }) {
   const plcCols = cols.filter(c => c.tag === "charge" && /plc/i.test(c.label));
   const available = units.filter(u => u.status === "available").length;
   const sold = units.filter(u => u.status === "sold").length;
+  const booked = units.filter(u => u.status === "booked").length;
+  const total = units.length || 1;
 
   const extentOf = (u) => (u.area && u.area > 0) ? u.area : (extentCol ? Number(u.data?.[extentCol.key] || 0) : 0);
   const applicablePlcs = (u) => plcCols.filter(c => Number(u.data?.[c.key] || 0) > 0);
+  const shown = units.filter(u => filter === "all" ? true : u.status === filter);
 
   return (
-    <section className="card overflow-hidden" data-testid={`project-inv-${project.project_id}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-agborder bg-surfacealt/40">
-        <div>
-          <div className="font-display text-2xl font-bold text-ink tracking-tight">{project.name}</div>
-          <div className="text-xs text-ink2 mt-0.5">
-            {project.kind || "Project"} · <span className="text-ok font-semibold">{available} available</span> · <span className="text-brand font-semibold">{sold} sold</span> · {units.length} total
+    <section className="panel overflow-hidden ag-rise" data-testid={`project-inv-${project.project_id}`}>
+      <div className="p-6 lg:p-8 border-b border-line">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="font-display text-3xl font-medium text-ink tracking-tight">{project.name}</div>
+            <div className="text-xs text-ink2 mt-1">{project.kind || "Project"} · {units.length} plots</div>
           </div>
+          {can(user, "admin") && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPlotDlg({ mode: "add" })} className="btn-secondary" data-testid={`add-plot-${project.project_id}`}>
+                <Plus className="w-4 h-4" /> Add plot
+              </button>
+              <button onClick={() => setWizard(true)} className="btn-primary" data-testid={`upload-${project.project_id}`}>
+                <Upload className="w-4 h-4" /> Upload inventory
+              </button>
+            </div>
+          )}
         </div>
-        {can(user, "admin") && (
-          <div className="flex items-center gap-2">
-            <button onClick={() => setPlotDlg({ mode: "add" })} className="btn-secondary" data-testid={`add-plot-${project.project_id}`}>
-              <Plus className="w-4 h-4" /> Add plot
-            </button>
-            <button onClick={() => setWizard(true)} className="btn-primary" data-testid={`upload-${project.project_id}`}>
-              <Upload className="w-4 h-4" /> Upload inventory
-            </button>
+
+        {units.length > 0 && (
+          <div className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-5 lg:gap-10 lg:items-center">
+            <div>
+              <div className="flex h-2.5 rounded-full overflow-hidden bg-surfacealt">
+                <div style={{ width: `${(available / total) * 100}%` }} className="transition-[width] duration-700" title={`${available} available`} data-bar="available" />
+                <div style={{ width: `${(sold / total) * 100}%`, background: "#a8763f" }} className="transition-[width] duration-700" title={`${sold} sold`} />
+                <div style={{ width: `${(booked / total) * 100}%`, background: "#c8912f" }} className="transition-[width] duration-700" title={`${booked} booked`} />
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3">
+                <Legend dot="#5a6b10" label="Available" n={available} />
+                <Legend dot="#a8763f" label="Sold" n={sold} />
+                {booked > 0 && <Legend dot="#c8912f" label="Booked" n={booked} />}
+              </div>
+            </div>
+            <div className="flex gap-1.5 shrink-0">
+              {["all", "available", "sold"].map(f => (
+                <button key={f} onClick={() => setFilter(f)} data-testid={`filter-${project.project_id}-${f}`}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors duration-200 ${filter === f ? "bg-plate text-white border-plate" : "border-line text-ink2 hover:bg-surfacealt"}`}>
+                  {f === "all" ? "All" : STATUS[f].label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
-      {units.length === 0 ? (
+      {loading ? (
+        <div className="p-5 lg:p-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="rounded-xl border border-line bg-white p-4 h-[92px] animate-pulse">
+                <div className="h-6 w-10 bg-surfacealt rounded" />
+                <div className="h-3 w-16 bg-surfacealt rounded mt-4" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : units.length === 0 ? (
         <EmptyState icon={Home} title="No plots yet"
           hint={can(user, "admin") ? "Upload the inventory sheet or add a plot manually." : "Waiting for admin to upload inventory."} />
       ) : (
-        <div className="max-h-[70vh] overflow-y-auto">
-          <div className="overflow-x-auto"><table className="w-full">
-            <thead className="sticky top-0 z-10"><tr className="border-b border-agborder bg-surfacealt/60">
-              <th className="th">Plot</th>
-              <th className="th text-right whitespace-nowrap">Extent (sq.ft)</th>
-              <th className="th">Applicable PLCs</th>
-              <th className="th">Status</th>
-              {can(user, "admin", "post_sales") && <th className="th text-right">Action</th>}
-            </tr></thead>
-            <tbody>
-              {units.map(u => {
-                const plcs = applicablePlcs(u);
-                return (
-                <tr key={u.unit_id} className="row align-top" data-testid={`unit-row-${u.plot_number}`}>
-                  <td className="td font-mono-num font-bold">{u.plot_number}</td>
-                  <td className="td text-right font-mono-num whitespace-nowrap">{num2(extentOf(u))}</td>
-                  <td className="td">
-                    {plcs.length === 0 ? <span className="text-ink2 text-xs">—</span> : (
-                      <div className="flex flex-wrap gap-1.5 max-w-[16rem]">
-                        {plcs.map(c => (
-                          <span key={c.key} className="pill text-[11px]" title={c.label}
-                            style={{ color: "#5a6b10", backgroundColor: "#5a6b1010", borderColor: "#5a6b1022" }}
-                            data-testid={`plc-${u.plot_number}-${c.key}`}>
-                            {c.label}: {inr(Number(u.data?.[c.key] || 0))}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td className="td"><StatusPill status={u.status} /></td>
-                  {can(user, "admin", "post_sales") && (
-                    <td className="td text-right whitespace-nowrap">
-                      {can(user, "admin", "post_sales") && (
-                        <button onClick={() => setPlotDlg({ mode: "edit", unit: u })} className="text-ink2 hover:text-brand mr-3" title="Edit" data-testid={`edit-plot-${u.plot_number}`}>
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                      )}
-                      {u.status === "available" && can(user, "admin", "post_sales") && (
-                        <button onClick={() => setSellFor(u)} className="btn-primary text-xs py-1.5" data-testid={`sell-${u.plot_number}`}>
-                          <HandCoins className="w-3.5 h-3.5" /> Sell
-                        </button>
-                      )}
-                      {u.status === "sold" && can(user, "admin") && (
-                        <button onClick={() => setCancelFor(u)} className="text-ink2 hover:text-bad ml-1" title="Cancel booking" data-testid={`cancel-${u.plot_number}`}>
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              );})}
-            </tbody>
-          </table></div>
+        <div className="p-5 lg:p-6 max-h-[74vh] overflow-y-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
+            {shown.map(u => (
+              <PlotTile key={u.unit_id} u={u} extent={extentOf(u)} plcs={applicablePlcs(u)} user={user}
+                onEdit={() => setPlotDlg({ mode: "edit", unit: u })}
+                onSell={() => setSellFor(u)} onCancel={() => setCancelFor(u)} />
+            ))}
+          </div>
+          {shown.length === 0 && <div className="text-sm text-ink2 py-10 text-center">No {filter} plots.</div>}
         </div>
       )}
 
@@ -144,6 +153,63 @@ function ProjectInventory({ project, user }) {
       {sellFor && <SellDialog unit={sellFor} columns={cols} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
       {cancelFor && <CancelDialog unit={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
     </section>
+  );
+}
+
+function Legend({ dot, label, n }) {
+  return (
+    <span className="flex items-center gap-2 text-xs">
+      <span className="w-2 h-2 rounded-full" style={{ background: dot }} />
+      <span className="text-ink2">{label}</span>
+      <span className="font-mono-num font-semibold text-ink">{n}</span>
+    </span>
+  );
+}
+
+function PlotTile({ u, extent, plcs, user, onEdit, onSell, onCancel }) {
+  const st = STATUS[u.status] || STATUS.available;
+  const actionable = can(user, "admin", "post_sales");
+  return (
+    <div data-testid={`unit-row-${u.plot_number}`}
+      className="group relative rounded-xl border border-line bg-white p-4 hover:border-ink/25 hover:shadow-[0_10px_30px_-14px_rgba(20,21,20,0.18)] transition-all duration-200">
+      <span className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full" style={{ background: st.dot }} />
+      <div className="flex items-start justify-between pl-2">
+        <div className="font-mono-num text-2xl font-semibold text-ink leading-none">{u.plot_number}</div>
+        <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-ink2 whitespace-nowrap">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: st.dot }} /> {st.label}
+        </span>
+      </div>
+      <div className="mt-3 pl-2 text-xs text-ink2">
+        {extent > 0 ? <><span className="font-mono-num text-ink font-medium">{num2(extent)}</span> sq.ft</> : "—"}
+      </div>
+      {plcs.length > 0 && (
+        <div className="mt-2 pl-2 flex flex-wrap gap-1">
+          {plcs.slice(0, 2).map(c => (
+            <span key={c.key} data-testid={`plc-${u.plot_number}-${c.key}`}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-brand/[0.07] text-brand border border-brand/15"
+              title={`${c.label}: ${inr(Number(u.data?.[c.key] || 0))}`}>{c.label}</span>
+          ))}
+          {plcs.length > 2 && <span className="text-[10px] text-ink2 self-center" title={plcs.slice(2).map(c => c.label).join(", ")}>+{plcs.length - 2}</span>}
+        </div>
+      )}
+      {actionable && (
+        <div className="mt-3 pl-2 flex items-center gap-2 pt-3 border-t border-line/70">
+          <button onClick={onEdit} data-testid={`edit-plot-${u.plot_number}`} className="text-ink2 hover:text-brand transition-colors duration-200" title="Edit plot">
+            <Pencil className="w-4 h-4" />
+          </button>
+          {u.status === "available" && (
+            <button onClick={onSell} data-testid={`sell-${u.plot_number}`} className="btn-primary text-xs py-1 px-2.5 ml-auto">
+              <HandCoins className="w-3.5 h-3.5" /> Sell
+            </button>
+          )}
+          {u.status === "sold" && can(user, "admin") && (
+            <button onClick={onCancel} data-testid={`cancel-${u.plot_number}`} className="text-ink2 hover:text-bad ml-auto transition-colors duration-200" title="Cancel booking">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

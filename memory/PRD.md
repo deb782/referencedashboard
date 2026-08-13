@@ -282,3 +282,11 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - Added ErrorBoundary.jsx wrapping route content in Layout (a page crash no longer blanks the shell).
 - Verified: testing agent iteration_20 = frontend 13/13 (100%) after fixing one pre-existing bug (Projects.jsx ProjectCard missing `readOnly` destructure — now fixed). Shell, ⌘K, dashboards, all 6 pages, mobile 390px + 1440px all pass. Demo data cleaned (sold=0/payments=0).
 - REMAINING REDESIGN PHASES (not yet done): P2 Units as spatial availability canvas + Projects; P3 Sales & Payments (maker-checker queue/drilldown/collections) + Cancellations; P4 Procurement pipeline timeline + Team/access + Post Sales/Accounts/Site Manager/Management dashboards. Apply the same design DNA; progressively refactor older pages (they currently inherit the softened tokens but still use legacy compositions).
+
+---
+## PHASE 12 · Redesign PHASE 2 of 4 — Units availability canvas + Projects (2026-06)
+- Units.jsx rebuilt: per-project tables → SPATIAL AVAILABILITY CANVAS. Editorial project header + availability meter (Available/Sold/Booked segments) + legend + status filter chips (filter-<pid>-all/-available/-sold) + responsive tile grid (2/3/4/5 cols). PlotTile shows plot number (mono), status accent bar+dot+label, extent, PLC chips, inline role-gated actions (edit/sell/cancel). All dialogs (UploadWizard/PlotDialog/SellDialog/CancelDialog) + testids UNCHANGED. Added loading skeleton (no empty-state flash).
+- Projects.jsx: editorial header (matches Dashboard/Units); cards inherit new tokens; readOnly guard intact.
+- ui.jsx Modal: added Escape-to-close + line-token borders + serif title.
+- Verified: testing agent iteration_21 = frontend 100%, zero console errors; full book→cancel cycle on plot 32; filters/meter/tiles correct; Post Sales vs Admin action gating correct; mobile 390px no overflow. DB restored sold=0/payments=0.
+- Remaining: P3 Sales & Payments (verification queue/drilldown/collections) + Cancellations; P4 Procurement pipeline timeline + Team/access + Post Sales/Accounts/Site Manager/Management dashboards.

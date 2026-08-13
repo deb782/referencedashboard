@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Building2, MapPin, Home, IndianRupee, Check } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { PageHeader, EmptyState, Modal, inr } from "@/components/ui";
+import { EmptyState, Modal, inr } from "@/components/ui";
 const emptyForm = { name: "", location: "", kind: "", site_manager_id: "" };
 
 export default function Projects() {
@@ -45,17 +45,22 @@ export default function Projects() {
   };
 
   return (
-    <div data-testid="projects-page">
-      <PageHeader overline="Portfolio" title="Projects" subtitle="Set each project's sale rate and see who's catering to its inventory.">
+    <div data-testid="projects-page" className="space-y-10">
+      <header className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <div className="overline mb-3">Portfolio</div>
+          <h1 className="font-display text-5xl sm:text-6xl font-medium tracking-tight text-ink leading-[0.95]">Projects</h1>
+          <p className="text-sm text-ink2 mt-3 max-w-xl">Set each project's sale rate and see who's catering to its inventory.</p>
+        </div>
         {!readOnly && (
           <button onClick={() => setShowForm(true)} className="btn-primary" data-testid="new-project-btn">
             <Plus className="w-4 h-4" /> New project
           </button>
         )}
-      </PageHeader>
+      </header>
 
       {rows.length === 0 ? (
-        <div className="card"><EmptyState icon={Building2} title="No projects yet" hint="Create your first project to start uploading units." /></div>
+        <div className="panel"><EmptyState icon={Building2} title="No projects yet" hint="Create your first project to start uploading units." /></div>
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {rows.map((p, i) => (

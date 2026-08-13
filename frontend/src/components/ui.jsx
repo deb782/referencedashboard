@@ -159,15 +159,20 @@ export function LinkPill({ to, children }) {
 
 export function Modal({ title, subtitle, onClose, children, footer, size = "md" }) {
   const w = { sm: "max-w-md", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-3xl" }[size] || "max-w-lg";
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className={`card w-full ${w} max-h-[92vh] flex flex-col ag-modal shadow-[0_24px_70px_-12px_rgba(20,21,20,0.35)]`} onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-agborder">
-          <div className="font-display text-lg font-bold text-ink tracking-tight">{title}</div>
+        <div className="px-6 py-4 border-b border-line">
+          <div className="font-display text-xl font-medium text-ink tracking-tight">{title}</div>
           {subtitle && <div className="text-sm text-ink2 mt-0.5">{subtitle}</div>}
         </div>
         <div className="px-6 py-5 overflow-y-auto">{children}</div>
-        {footer && <div className="px-6 py-4 border-t border-agborder flex justify-end gap-2 bg-surfacealt/40">{footer}</div>}
+        {footer && <div className="px-6 py-4 border-t border-line flex justify-end gap-2 bg-surfacealt/40">{footer}</div>}
       </div>
     </div>
   );

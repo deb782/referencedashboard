@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 21 (frontend-only): Validated Phase-2 'Spatial Availability Canvas' redesign for Units + editorial Projects header. All acceptance criteria met with ZERO console/page errors. Verified via Playwright on the production preview URL. Data plane check: /api/units?project_id=proj_01d7e89ba838 returns 47 items, proj_53fb360c1f0a returns 256 items (DB is properly seeded and reset to all-available). UI check: units-page renders; project-inv-proj_01d7e89ba838 and project-inv-proj_53fb360c1f0a both render with a live availability meter (Available/Sold[/Booked] segments), a legend (Available 47, Sold 0), and filter chips filter-<pid>-all / -available / -sold. Tile grid renders 47 tiles for CVF and 256 for VV, each with data-testid unit-row-<plot>, plot number in mono, status accent bar + dot + label, extent (sq.ft) and PLC chips (data-testid plc-<plot>-<key>) for VV. Filter chips work: '-available' shows 47 (all avail), '-sold' shows 0 initially, and after booking a plot '-sold' shows exactly 1 tile — chip state toggles correctly and DOM count updates. Full BOOK→CANCEL cycle on plot 32 (CVF) as admin: sell-32 opens SellDialog (all testids present: s-buyer, s-date, s-price, s-booking, s-comp-*, s-name-0, s-row-date-0, s-row-amt-0, s-add-row); filled buyer 'TEST Buyer QA', booking 10000, schedule row 50000, added a 2nd row, s-submit → toast 'Sale recorded — accounts & admin notified' → tile updates to SOLD with cancel-32 visible; meter/legend re-render (Available 46, Sold 1). Edit dialog (edit-plot-32) opens with plot-number and 18 plot-field-<key> inputs + plot-save. Cancel dialog (cancel-32) opens with cancel-date, cancel-refund, cancel-summary + cancel-submit — submitted → plot 32 back to AVAILABLE (DB cleaned to sold=0/payments=0 as requested). Projects page (projects-page) renders editorial header, rate-input-<pid> and rate-save-<pid> editable for admin. Post Sales role: NO add-plot-<pid> and NO upload-<pid> (0 count each), but Sell (303 buttons across both projects) and Edit (303) are visible; cancel- buttons = 0 (admin-only, correct). Mobile @390px: no horizontal overflow (scrollWidth == clientWidth == 390), tiles reflow to 2 columns as designed (grid-cols-2 sm:grid-cols-3 lg:grid-cols-4). 1440px: no overflow. Console/page errors across all runs: 0.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Units — ProjectInventory panel (Units.jsx)",
+        "issues": [
+          "Minor: units[] is fetched inside ProjectInventory's useEffect, so the panel briefly renders its <EmptyState 'No plots yet'> before the API resolves (~1–3s on first load). Consider adding a loading state (skeleton tiles) or gating the empty state on !loading to avoid a flash of 'No plots yet' on projects that actually have plots.",
+          "Minor: Modal component (components/ui.jsx) has no Escape-key handler; pressing Esc does NOT close Sell/Edit/Cancel/Upload dialogs. Users must click Cancel/backdrop. Not a Phase-2 regression but worth adding a keydown listener for accessibility."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional) Add a loading state to ProjectInventory so the 'No plots yet' empty state doesn't flash before /units resolves.",
+    "(Optional / A11y) Wire Escape key in components/ui.jsx Modal to invoke onClose."
+  ],
+  "critical_code_review_comments": [
+    "Units.jsx PlotTile: role-based action gating is clean — actionable = can(user, 'admin','post_sales'), cancel is further gated to admin only. Matches product spec.",
+    "Availability meter uses (available/total)*100 with total = units.length || 1 — safe against divide-by-zero when the panel initially renders with 0 units.",
+    "Filter is purely client-side (single boolean compare) — fast and predictable; chips carry proper data-testids scoped by project_id.",
+    "SellDialog and CancelDialog logic are unchanged from prior iterations and continue to work end-to-end (create sale → notification → cancel → refund/retained calc).",
+    "ProjectInventory refetches /projects after every load() to pick up column changes — acceptable but slightly chatty; could be lifted to Units-level state if refactored later."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "N/A (skipped per request)", "frontend": "100% (all Phase-2 acceptance items verified)" },
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123.",
+  "seed_data_creation": "None. Booked plot 32 (Central Vista Farms) during Sell-flow test then cancelled it via the Cancel dialog. DB restored to sold=0 / payments=0 as requested.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-2 Units canvas + editorial Projects header are stable and shippable. All required testids exist and behave: units-page, project-inv-<pid>, filter-<pid>-{all|available|sold}, unit-row-<plot>, plc-<plot>-<key>, sell-<plot>, edit-plot-<plot>, cancel-<plot>, add-plot-<pid> (admin), upload-<pid> (admin), s-buyer, s-date, s-price, s-booking, s-comp-<key>, s-name-0, s-row-date-0, s-row-amt-0, s-add-row, s-submit, plot-number, plot-field-<key>, plot-save, cancel-date, cancel-refund, cancel-summary, cancel-submit, projects-page, rate-input-<pid>, rate-save-<pid>. Race on first render (empty state flash) and Modal lacking Escape are the only nits — not blockers. Note: only Sell/Edit tests need long enough wait for the initial units fetch (~3–4s) — otherwise you'll interact with the empty state."
+}
