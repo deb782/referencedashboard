@@ -4,7 +4,7 @@ import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, D
 import { api, apiError, downloadFile } from "@/lib/api";
 import { ReportViewer } from "@/components/ReportViewer";
 import { useAuth, can } from "@/lib/auth";
-import { StatusPill, EmptyState, SectionCard, Modal, inr } from "@/components/ui";
+import { StatusPill, EmptyState, SectionCard, Modal, inr, projectLogo } from "@/components/ui";
 
 export default function Sales() {
   const { user } = useAuth();
@@ -84,7 +84,10 @@ export default function Sales() {
             <Summary label="Pending" value={inr(plots.totals?.pending)} tone="text-warn" />
           </div>
           {(plots.projects || []).map((p) => (
-            <SectionCard key={p.project_id} title={`${p.name} · ${p.plot_count} plot(s)`} className="ag-rise"
+            <SectionCard key={p.project_id} title={<span className="flex items-center gap-2">
+                {projectLogo(p.name) && <img src={projectLogo(p.name)} alt="" className="h-5 w-auto max-w-[90px] object-contain" />}
+                {p.name} · {p.plot_count} plot(s)
+              </span>} className="ag-rise"
               action={<div className="flex items-center gap-4">
                 <span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(p.pending)}</b></span>
                 {can(user, "admin", "accounts") && p.plot_count > 0 && (

@@ -1335,6 +1335,50 @@ def _inr_plain(n) -> str:
     return ("-" if neg else "") + "Rs. " + s
 
 
+def _num_to_words_in(n: int) -> str:
+    n = int(n)
+    if n == 0:
+        return "Zero"
+    ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+            "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+            "Seventeen", "Eighteen", "Nineteen"]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+    def two(x):
+        return ones[x] if x < 20 else tens[x // 10] + ((" " + ones[x % 10]) if x % 10 else "")
+
+    def three(x):
+        h, r = x // 100, x % 100
+        s = (ones[h] + " Hundred") if h else ""
+        if r:
+            s += (" " if s else "") + two(r)
+        return s
+
+    parts = []
+    crore, n = n // 10000000, n % 10000000
+    lakh, n = n // 100000, n % 100000
+    thousand, n = n // 1000, n % 1000
+    if crore:
+        parts.append(three(crore) + " Crore")
+    if lakh:
+        parts.append(two(lakh) + " Lakh")
+    if thousand:
+        parts.append(two(thousand) + " Thousand")
+    if n:
+        parts.append(three(n))
+    return " ".join(parts).strip()
+
+
+def _amount_words(n) -> str:
+    v = round(_num(n), 2)
+    rupees = int(v)
+    paise = int(round((v - rupees) * 100))
+    w = "Rupees " + _num_to_words_in(rupees)
+    if paise:
+        w += " and " + _num_to_words_in(paise) + " Paise"
+    return w + " Only"
+
+
 async def _plot_report_data(unit_id: str) -> dict:
     unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
     if not unit:
@@ -1533,6 +1577,10 @@ def _build_report_pdf(d: dict) -> bytes:
         ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LEFTPADDING", (0, 0), (-1, -1), 7)]))
     story.append(t)
+    story.append(Spacer(1, 5))
+    story.append(Paragraph(f"<b>Total payable in words:</b> {_amount_words(d['total_payable'])}",
+                 ParagraphStyle("words", fontName="Helvetica-Oblique", fontSize=9,
+                                textColor=INK, leading=12, spaceBefore=2)))
 
     def money_table(title, header, rows, aligns=None, widths=None):
         story.append(H(title))

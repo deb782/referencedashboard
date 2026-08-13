@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Home, TrendingUp, ArrowUpRight, Wallet } from "lucide-react";
-import { EmptyState, inr, inrShort, AnimatedNumber } from "@/components/ui";
+import { EmptyState, inr, inrShort, AnimatedNumber, projectLogo } from "@/components/ui";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -70,7 +70,10 @@ export default function PostSalesDashboard({ stats, user }) {
             <div key={p.project_id} className={`panel p-6 lg:p-7 ag-rise ag-rise-${i + 1}`} data-testid={`dash-project-${p.project_id}`}>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="font-display text-2xl font-medium text-ink tracking-tight">{p.name}</div>
+                  <div className="flex items-center gap-2">
+                    {projectLogo(p.name) && <img src={projectLogo(p.name)} alt="" className="h-6 w-auto max-w-[110px] object-contain" />}
+                    <div className="font-display text-2xl font-medium text-ink tracking-tight">{p.name}</div>
+                  </div>
                   <div className="text-xs text-ink2 mt-1">{p.kind || "Project"}</div>
                 </div>
                 <div className="text-right">
