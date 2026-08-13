@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 22 (frontend-only): Validated PHASE 3 editorial restyle of Sales & Payments. All acceptance criteria PASSED with ZERO console/page errors (only 4x 401s during pre-auth resource loads on nav — expected/non-critical). Screenshots confirm editorial header ('THE LEDGER' overline + large serif 'Sales & Payments' title), segmented HeadTab pills with active = near-black plate (Plots is filled dark, Site is outlined), summary panels with large serif numbers (₹80,79,623.00 / ₹56,55,736.00 / ₹24,23,887.00), and hairline table borders. Tests performed on preview URL. ADMIN (9513242807/Repro@123): sales-page renders; all 4 head tabs visible (head-plots, head-site, head-verify, head-cancellations) and switch correctly; plot-pay-row-32 present with buyer 'Anita Rao'; drilldown opens with download-report-<unit_id> btn, 2 inst-rows (inst-row-*), 2 receipts (rc-rc_03baa51b8e63 verified booking + rc-rc_e7aee355c2a7 pending instalment) and correct VERIFIED/Pending badges; Escape closes drilldown; cancellations-view renders; verification-view + vfilter-pending/-returned/-verified all render for admin. ACCOUNTS (9000000002/Pass@123): verification queue shows the pending receipt rc_e7aee355c2a7 under pending filter; vq-yes-rc_e7aee355c2a7 click verified the receipt and moved it to the verified filter (received total increases in DB — booking ₹24,23,887 + instalment ~₹32,31,849 = ₹56,55,736 accounted). POST SALES (9000000001/Pass@123): head-verify and head-cancellations correctly HIDDEN; plot-pay-row-32 drilldown opens; receipt-btn-<payment_id> present on the remaining unpaid instalment; ReceiptDialog opens with all fields (receipt-amount, receipt-date, receipt-mode, receipt-head, receipt-notes, receipt-submit) and 16 component pills (comp-*); Escape closes ReceiptDialog (receipt-expdate only shown in partial mode — not tested since we did not toggle to partial, but selector exists in code at Sales.jsx:424). RESPONSIVE: horizontal overflow = 0 at both 1440x900 and 390x844. CLEANUP DONE: Plot 32 (CVF, unit_8077ee366ecf) set back to status='available'; 2 payments docs deleted; 1 cancellation record deleted (leftover); notifications 0. DB restored to sold=0/payments=0 as requested.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Sales.jsx head-tab styling: active tab uses bg-plate/text-white with border-plate — matches 'near-black plate' spec and is consistent between Verify/Cancellations custom buttons and the HeadTab component (Plots/Site).",
+    "Modal component (components/ui.jsx) Escape-to-close is confirmed working for both PlotDrilldown and ReceiptDialog — resolves the a11y nit called out in iteration 21.",
+    "Summary panel typography uses large serif (font-display) with mono-num for values — matches editorial language.",
+    "Role gating unchanged: post_sales does not see head-verify/head-cancellations; accounts sees all four; admin sees all four. Verified via UI.",
+    "Maker-checker flow intact: pending receipt does NOT count in received until Accounts YES; after YES the received total updates. UI badges reflect verification_status correctly (VERIFIED vs Pending).",
+    "Sales.jsx is ~488 lines — approaching the split-threshold in code review guidelines. Consider extracting PlotDrilldown / ReceiptDialog / VerificationQueue / CancellationsView into their own files for maintainability (non-blocking)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "N/A (skipped per request)", "frontend": "100% (all Phase-3 acceptance items verified)" },
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123.",
+  "seed_data_creation": "None created. Consumed the pre-seeded state (Plot 32 CVF sold to Anita Rao with verified booking + pending 40% instalment). After tests, verified the pending receipt via Accounts YES flow. CLEANUP performed via Mongo: units.update {plot_number:32, project_id:proj_01d7e89ba838} → status='available' + unset buyer_name/booking_date/sale_price/booking_amount; payments.delete_many by unit_id (2 docs removed); cancellations.delete_many by unit_id (1 leftover doc removed); notifications 0. Receipts collection empty (receipts are embedded in payments docs so removed with them).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-3 editorial Sales & Payments restyle is stable and shippable. All testids preserved: sales-page, head-plots/site/verify/cancellations, plot-pay-row-<plot>, inst-row-<pid>, rc-<rid>, verify-yes-<rid>/verify-no-<rid>/correct-<rid>, download-report-<unit_id>, receipt-btn-<pid>, receipt-amount/-date/-mode/-head/-notes/-submit/-expdate, comp-<key>, alloc-<key>, verification-view, vfilter-pending/-returned/-verified, vq-<rid>, vq-yes-<rid>, vq-no-<rid>, cancellations-view, cancel-row-<plot>, site-row-<rid>. Modal Escape-to-close now works everywhere. If retest needed, re-seed Plot 32 (CVF, unit_8077ee366ecf) sold to Anita Rao with a verified booking receipt + pending instalment receipt (see main agent seeding logic in Phase 3)."
+}

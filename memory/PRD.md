@@ -290,3 +290,10 @@ ALL THREE PHASES COMPLETE. Go-live: redeploy to push code; production has its OW
 - ui.jsx Modal: added Escape-to-close + line-token borders + serif title.
 - Verified: testing agent iteration_21 = frontend 100%, zero console errors; full book→cancel cycle on plot 32; filters/meter/tiles correct; Post Sales vs Admin action gating correct; mobile 390px no overflow. DB restored sold=0/payments=0.
 - Remaining: P3 Sales & Payments (verification queue/drilldown/collections) + Cancellations; P4 Procurement pipeline timeline + Team/access + Post Sales/Accounts/Site Manager/Management dashboards.
+
+---
+## PHASE 12 · Redesign PHASE 3 of 4 — Sales & Payments (2026-06)
+- Sales.jsx restyled to editorial language (VISUAL ONLY, logic/testids unchanged): editorial header, unified segmented head tabs (Plots/Site/Verification/Cancellations, active = near-black plate), Summary → panel + kpi-value serif numbers, hairline (border-line) tables, plate active pills. Maker-checker flow untouched.
+- ui.jsx Modal: Escape-to-close applies across all dialogs (Plot drilldown, Record/Correct payment, etc.).
+- Verified: testing agent iteration_22 = frontend 100%, zero bugs; all 4 tabs, drilldown, verify YES/NO, record-payment dialog, cancellations, PDF download, Escape-close, responsive all pass. DB restored sold=0/payments=0.
+- Remaining: P4 Procurement pipeline timeline + Team/access + role dashboards (Post Sales/Accounts/Site Manager/Management).

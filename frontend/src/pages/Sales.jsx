@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
-import { PageHeader, StatusPill, EmptyState, SectionCard, Modal, inr } from "@/components/ui";
+import { StatusPill, EmptyState, SectionCard, Modal, inr } from "@/components/ui";
 
 export default function Sales() {
   const { user } = useAuth();
@@ -31,19 +31,22 @@ export default function Sales() {
   const site = ov?.site || { rows: [], pending_total: 0, paid_total: 0 };
 
   return (
-    <div data-testid="sales-page">
-      <PageHeader overline="The Ledger" title="Sales & Payments"
-        subtitle="Dues are grouped into two heads — Plots (buyer instalments) and Site (procurement bills)." />
+    <div data-testid="sales-page" className="space-y-8">
+      <header>
+        <div className="overline mb-3">The Ledger</div>
+        <h1 className="font-display text-5xl sm:text-6xl font-medium tracking-tight text-ink leading-[0.95]">Sales &amp; Payments</h1>
+        <p className="text-sm text-ink2 mt-3 max-w-xl">Dues are grouped into two heads — Plots (buyer instalments) and Site (procurement bills). Only Accounts-verified money is counted.</p>
+      </header>
 
       {/* Head toggle */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="flex flex-wrap gap-2">
         <HeadTab active={head === "plots"} onClick={() => setHead("plots")} icon={Home}
           label="Plots" pending={plots.totals?.pending} testid="head-plots" />
         <HeadTab active={head === "site"} onClick={() => setHead("site")} icon={Building2}
           label="Site" pending={site.pending_total} testid="head-site" />
         {can(user, "admin", "accounts") && (
           <button onClick={() => setHead("verify")} data-testid="head-verify"
-            className={`flex items-center gap-3 px-5 py-3 rounded-lg border transition-colors duration-300 ${head === "verify" ? "bg-brand text-white border-brand" : "bg-white border-agborder text-ink2 hover:bg-surfacealt"}`}>
+            className={`flex items-center gap-3 px-5 py-3 rounded-lg border transition-colors duration-300 ${head === "verify" ? "bg-plate text-white border-plate" : "bg-white border-line text-ink2 hover:bg-surfacealt"}`}>
             <ShieldCheck className="w-5 h-5" />
             <div className="text-left">
               <div className="font-display font-bold leading-none">Verification</div>
@@ -53,7 +56,7 @@ export default function Sales() {
         )}
         {can(user, "admin", "accounts") && (
           <button onClick={() => setHead("cancellations")} data-testid="head-cancellations"
-            className={`flex items-center gap-3 px-5 py-3 rounded-lg border transition-colors duration-300 ${head === "cancellations" ? "bg-brand text-white border-brand" : "bg-white border-agborder text-ink2 hover:bg-surfacealt"}`}>
+            className={`flex items-center gap-3 px-5 py-3 rounded-lg border transition-colors duration-300 ${head === "cancellations" ? "bg-plate text-white border-plate" : "bg-white border-line text-ink2 hover:bg-surfacealt"}`}>
             <XCircle className="w-5 h-5" />
             <div className="text-left">
               <div className="font-display font-bold leading-none">Cancellations</div>
@@ -74,7 +77,7 @@ export default function Sales() {
             <SectionCard key={p.project_id} title={`${p.name} · ${p.plot_count} plot(s)`} className="ag-rise"
               action={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(p.pending)}</b></span>}>
               <div className="overflow-x-auto"><table className="w-full">
-                <thead><tr className="border-b border-agborder bg-surfacealt/40">
+                <thead><tr className="border-b border-line bg-surfacealt/40">
                   <th className="th">Plot</th><th className="th">Buyer</th><th className="th">Instalments</th>
                   <th className="th">Next due</th><th className="th text-right">Billed</th>
                   <th className="th text-right">Received</th><th className="th text-right">Pending</th><th className="th"></th>
@@ -107,7 +110,7 @@ export default function Sales() {
           <SectionCard title="Procurement bills" className="ag-rise">
             {site.rows.length === 0 ? <EmptyState icon={Building2} title="No site bills" hint="Approved procurement bills appear here." /> : (
               <div className="overflow-x-auto"><table className="w-full">
-                <thead><tr className="border-b border-agborder bg-surfacealt/40">
+                <thead><tr className="border-b border-line bg-surfacealt/40">
                   <th className="th">Subject</th><th className="th">Project</th><th className="th">PO</th>
                   <th className="th text-right">Estimated</th><th className="th text-right">Paid</th>
                   <th className="th text-right">Pending</th><th className="th">Status</th>
@@ -127,7 +130,7 @@ export default function Sales() {
                 </tbody>
               </table></div>
             )}
-            <div className="px-5 py-3 text-xs text-ink2 border-t border-agborder">Record PO payments from the Procurement page. Milestone payment structure comes in the next phase.</div>
+            <div className="px-5 py-3 text-xs text-ink2 border-t border-line">Record PO payments from the Procurement page. Milestone payment structure comes in the next phase.</div>
           </SectionCard>
         </div>
       ) : head === "cancellations" ? (
@@ -144,11 +147,11 @@ export default function Sales() {
 function HeadTab({ active, onClick, icon: Icon, label, pending, testid }) {
   return (
     <button onClick={onClick} data-testid={testid}
-      className={`flex items-center gap-3 px-5 py-3 rounded-lg border transition-colors duration-300 ${active ? "bg-brand text-white border-brand" : "bg-white border-agborder text-ink2 hover:bg-surfacealt"}`}>
-      <Icon className="w-5 h-5" />
+      className={`flex items-center gap-3 px-5 py-3 rounded-xl border transition-colors duration-300 ${active ? "bg-plate text-white border-plate" : "bg-white border-line text-ink2 hover:bg-surfacealt"}`}>
+      <Icon className="w-5 h-5" strokeWidth={1.75} />
       <div className="text-left">
-        <div className="font-display font-bold leading-none">{label}</div>
-        <div className={`text-xs mt-1 font-mono-num ${active ? "text-white/80" : "text-warn"}`}>Pending {inr(pending)}</div>
+        <div className="font-display text-lg font-medium leading-none">{label}</div>
+        <div className={`text-xs mt-1 font-mono-num ${active ? "text-white/70" : "text-warn"}`}>Pending {inr(pending)}</div>
       </div>
     </button>
   );
@@ -156,9 +159,9 @@ function HeadTab({ active, onClick, icon: Icon, label, pending, testid }) {
 
 function Summary({ label, value, tone }) {
   return (
-    <div className="card p-5 ag-rise">
+    <div className="panel p-6 ag-rise">
       <div className="overline">{label}</div>
-      <div className={`font-display font-extrabold text-2xl mt-2 font-mono-num ${tone}`}>{value}</div>
+      <div className={`kpi-value text-4xl mt-3 ${tone}`}>{value}</div>
     </div>
   );
 }
@@ -176,7 +179,7 @@ function CancellationsView({ rows }) {
       <SectionCard title="Cancelled bookings" className="ag-rise">
         {rows.length === 0 ? <EmptyState icon={XCircle} title="No cancellations" hint="Cancelled bookings will appear here with paid, refunded and retained amounts." /> : (
           <div className="overflow-x-auto"><table className="w-full">
-            <thead><tr className="border-b border-agborder bg-surfacealt/40">
+            <thead><tr className="border-b border-line bg-surfacealt/40">
               <th className="th">Date</th><th className="th">Plot</th><th className="th">Buyer</th>
               <th className="th text-right">Paid</th><th className="th text-right">Refunded</th>
               <th className="th text-right">Balance retained</th><th className="th">By</th>
@@ -275,7 +278,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
         {rows.map((r) => {
           const bal = round2(Number(r.amount) - Number(r.paid_amount || 0));
           return (
-            <div key={r.payment_id} className="border border-agborder rounded-md p-3" data-testid={`inst-row-${r.payment_id}`}>
+            <div key={r.payment_id} className="border border-line rounded-md p-3" data-testid={`inst-row-${r.payment_id}`}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <div className="font-semibold text-ink">{r.notes || `#${r.seq}`} <StatusPill status={r.status} /></div>
@@ -396,15 +399,15 @@ function ReceiptDialog({ payment, existing, components, onClose, onSaved }) {
             <div className="flex flex-wrap gap-1.5 mb-2">
               {components.map(c => (
                 <button key={c.key} onClick={() => toggle(c)} data-testid={`comp-${c.key}`}
-                  className={`pill text-xs ${alloc[c.key] !== undefined ? "bg-brand text-white border-brand" : "text-ink2"}`}>{c.label}</button>
+                  className={`pill text-xs ${alloc[c.key] !== undefined ? "bg-plate text-white border-plate" : "text-ink2"}`}>{c.label}</button>
               ))}
             </div>
             {selected.length > 0 && (
-              <div className="border border-agborder rounded-md overflow-x-auto"><table className="w-full">
-                <thead><tr className="bg-surfacealt/60 border-b border-agborder"><th className="th py-1.5">Component</th><th className="th py-1.5 text-right">Outstanding</th><th className="th py-1.5 text-right">Allocate</th></tr></thead>
+              <div className="border border-line rounded-md overflow-x-auto"><table className="w-full">
+                <thead><tr className="bg-surfacealt/60 border-b border-line"><th className="th py-1.5">Component</th><th className="th py-1.5 text-right">Outstanding</th><th className="th py-1.5 text-right">Allocate</th></tr></thead>
                 <tbody>
                   {selected.map(c => (
-                    <tr key={c.key} className="border-b border-agborder last:border-0">
+                    <tr key={c.key} className="border-b border-line last:border-0">
                       <td className="td py-1.5">{c.label}</td>
                       <td className="td py-1.5 text-right font-mono-num text-ink2">{inr(round2(c.amount - c.already_paid))}</td>
                       <td className="td py-1.5 text-right"><input type="number" value={alloc[c.key]} onChange={(e) => setAlloc(p => ({ ...p, [c.key]: e.target.value }))} className="input text-right font-mono-num py-1 w-32" data-testid={`alloc-${c.key}`} /></td>
@@ -442,13 +445,13 @@ function VerificationQueue({ rows, canVerify, onChanged }) {
       <div className="flex flex-wrap gap-2">
         {["pending", "returned", "verified"].map(s => (
           <button key={s} onClick={() => setF(s)} data-testid={`vfilter-${s}`}
-            className={`pill text-xs capitalize ${f === s ? "bg-brand text-white border-brand" : "text-ink2"}`}>{s} ({rows.filter(r => r.verification_status === s).length})</button>
+            className={`pill text-xs capitalize ${f === s ? "bg-plate text-white border-plate" : "text-ink2"}`}>{s} ({rows.filter(r => r.verification_status === s).length})</button>
         ))}
       </div>
       <SectionCard title="Payment verification queue">
         {list.length === 0 ? <EmptyState icon={ShieldCheck} title="Nothing here" hint="Payments submitted by Post Sales appear here for confirmation." /> : (
           <div className="overflow-x-auto"><table className="w-full">
-            <thead><tr className="border-b border-agborder bg-surfacealt/40">
+            <thead><tr className="border-b border-line bg-surfacealt/40">
               <th className="th">Plot</th><th className="th">Customer</th><th className="th">Instalment</th>
               <th className="th text-right">Amount</th><th className="th">Mode</th><th className="th">Date</th><th className="th">By</th>
               {canVerify && <th className="th text-right">Decision</th>}
