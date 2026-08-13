@@ -489,6 +489,20 @@ def require_section(section: str, *roles: Role):
     return _dep
 
 
+def require_report_access():
+    """Payment report: everyone except site_manager. Management needs sales OR units."""
+    async def _dep(user: User = Depends(get_current_user)) -> User:
+        if user.role == "management":
+            perms = user.permissions or []
+            if "sales" in perms or "units" in perms:
+                return user
+            raise HTTPException(403, "Section not permitted for this account")
+        if user.role not in ("admin", "accounts", "post_sales"):
+            raise HTTPException(403, f"Role {user.role} not permitted")
+        return user
+    return _dep
+
+
 def _mgmt_gate(user: User, section: str):
     if user.role == "management" and section not in (user.permissions or []):
         raise HTTPException(403, "Section not permitted for this account")
@@ -1553,7 +1567,7 @@ def _build_report_pdf(d: dict) -> bytes:
 
 @api.get("/units/{unit_id}/payment-report")
 async def download_payment_report(unit_id: str,
-                                  user: User = Depends(require_section("sales", "admin", "accounts", "post_sales"))):
+                                  user: User = Depends(require_report_access())):
     data = await _plot_report_data(unit_id)
     pdf = _build_report_pdf(data)
     safe = "".join(ch for ch in str(data["plot_number"]) if ch.isalnum() or ch in "-_") or "plot"
