@@ -382,7 +382,10 @@ function ReceiptDialog({ payment, existing, components, onClose, onSaved }) {
   const save = async () => {
     if (!amount || Number(amount) <= 0) return toast.error("Enter a payment amount");
     if (!mode) return toast.error("Select a mode of payment");
-    if (selected.length > 0 && Math.abs(allocTotal - Number(amount)) > 0.01) return toast.error(`Component allocation (${inr(allocTotal)}) must equal amount received (${inr(Number(amount))})`);
+    if (components.length > 0) {
+      if (selected.length === 0) return toast.error("Break the amount down into its components before submitting");
+      if (Math.abs(allocTotal - Number(amount)) > 0.01) return toast.error(`Component allocation (${inr(allocTotal)}) must equal amount received (${inr(Number(amount))})`);
+    }
     if (isPartial && !expDate) return toast.error("Enter the expected date for the remaining payment");
     setBusy(true);
     const body = {
@@ -430,7 +433,7 @@ function ReceiptDialog({ payment, existing, components, onClose, onSaved }) {
 
         {components.length > 0 && (
           <div>
-            <label className="label">Component allocation (optional — must total the amount)</label>
+            <label className="label">Component allocation <span className="text-bad">*</span> — must total the amount received</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {components.map(c => (
                 <button key={c.key} onClick={() => toggle(c)} data-testid={`comp-${c.key}`}

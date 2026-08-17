@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Clock, ArrowUpRight, Building2 } from "lucide-react";
-import { EmptyState, inr, inrShort, AnimatedNumber, projectLogo } from "@/components/ui";
+import { EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -44,7 +44,7 @@ export default function AccountsDashboard({ stats, user }) {
             </div>
           </div>
           <div className="divide-y divide-line">
-            <HeroStat label="Received" value={con.received_total || 0} tone="text-ok" />
+            <HeroStat label="Received" value={con.received_total || 0} tone="text-ok" words />
             <HeroStat label="Total Booked" value={booked} />
             <HeroStat label="Pending" value={con.pending_total || 0} tone="text-clay" lime />
           </div>
@@ -66,9 +66,10 @@ export default function AccountsDashboard({ stats, user }) {
                     </div>
                     <div className="text-xs text-ink2 mt-1"><span className="font-mono-num text-ink font-semibold">{p.sold}</span> sold</div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right max-w-[240px]">
                     <div className="text-[10px] uppercase tracking-[0.16em] text-ink2 font-semibold">Received</div>
-                    <div className="kpi-value text-4xl mt-1 text-ok" title={inr(p.received_total)}><AnimatedNumber value={p.received_total || 0} format={inrShort} /></div>
+                    <div className="kpi-value text-2xl lg:text-3xl mt-1 text-ok break-words" title={inr(p.received_total)} data-testid={`dash-received-${p.project_id}`}>{inr(p.received_total)}</div>
+                    <div className="text-[10px] text-ink2 mt-1 italic leading-snug" data-testid={`dash-received-words-${p.project_id}`}>{amountWords(p.received_total)}</div>
                   </div>
                 </div>
                 <div className="mt-5 flex items-center gap-3">
@@ -92,7 +93,19 @@ export default function AccountsDashboard({ stats, user }) {
   );
 }
 
-function HeroStat({ label, value, tone = "text-ink", lime }) {
+function HeroStat({ label, value, tone = "text-ink", lime, words }) {
+  if (words) {
+    return (
+      <div className="p-6 lg:p-8">
+        <div className="flex items-center gap-2">
+          {lime && <span className="w-2 h-2 rounded-full" style={{ background: "#ccff00" }} />}
+          <span className="text-[11px] uppercase tracking-[0.16em] text-ink2 font-semibold">{label}</span>
+        </div>
+        <div className={`kpi-value text-2xl lg:text-3xl mt-1 break-words ${tone}`}>{inr(value)}</div>
+        <div className="text-[10px] text-ink2 mt-1 italic leading-snug">{amountWords(value)}</div>
+      </div>
+    );
+  }
   return (
     <div className="p-6 lg:p-8 flex items-center justify-between gap-4">
       <div className="flex items-center gap-2">
