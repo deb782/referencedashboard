@@ -329,6 +329,10 @@ class VerifyDecision(BaseModel):
     notes: str = ""
 
 
+class AllocationEdit(BaseModel):
+    allocations: list = []                       # [{key,label,amount}]
+
+
 class PaymentUpdate(BaseModel):
     status: Literal["pending", "partial", "received"]
     received_date: Optional[str] = None
@@ -1323,6 +1327,32 @@ async def correct_receipt(payment_id: str, receipt_id: str, payload: ReceiptCrea
     return {"ok": True}
 
 
+@api.patch("/payments/{payment_id}/receipts/{receipt_id}/allocations")
+async def edit_receipt_allocations(payment_id: str, receipt_id: str, payload: AllocationEdit,
+                                    user: User = Depends(require_roles("accounts"))):
+    """Accounts can bifurcate/re-bifurcate an existing receipt so component
+    statements reconcile at source. Does not change the receipt amount or status."""
+    pay = await db.payments.find_one({"payment_id": payment_id}, {"_id": 0})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    receipts = pay.get("receipts", [])
+    rc = next((r for r in receipts if r.get("receipt_id") == receipt_id), None)
+    if not rc:
+        raise HTTPException(404, "Receipt not found")
+    amt = round(_num(rc.get("amount")), 2)
+    allocs = [{"key": a.get("key", ""), "label": a.get("label", ""),
+               "amount": round(_num(a.get("amount")), 2)} for a in payload.allocations]
+    alloc_total = round(sum(a["amount"] for a in allocs), 2)
+    if not allocs:
+        raise HTTPException(400, "At least one component allocation is required")
+    if abs(alloc_total - amt) > 0.01:
+        raise HTTPException(400, f"Component allocation (\u20B9{alloc_total:,.2f}) must equal amount received (\u20B9{amt:,.2f})")
+    rc["allocations"] = allocs
+    rc.setdefault("history", []).append({"action": "bifurcated", "by_name": user.name, "at": now()})
+    await db.payments.update_one({"payment_id": payment_id}, {"$set": {"receipts": receipts}})
+    return {"ok": True}
+
+
 # ----- plot-wise payment report (PDF) -------------------------------------
 def _inr_plain(n) -> str:
     """Indian-grouped rupee string (Rs. prefix). Shows 2 decimals only when non-integer."""
@@ -1384,6 +1414,27 @@ def _amount_words(n) -> str:
     return w + " Only"
 
 
+def _map_head_to_key(head, charge_cols):
+    """Best-effort map a legacy receipt's payment head to a component key.
+    Used only for old receipts that have no stored bifurcation."""
+    h = (head or "").lower().replace("collection", "").replace("charges", "").strip()
+    if not h:
+        return None
+    aliases = {
+        "bsp": ["basic sale", "bsp"],
+        "plc": ["plc", "preferential", "location"],
+        "registration": ["registration"],
+        "maintenance": ["maintenance"],
+    }
+    keys = aliases.get(h, [h])
+    for c in charge_cols:
+        lbl = (c.get("label") or "").lower()
+        key = (c.get("key") or "").lower()
+        if any(k in lbl for k in keys) or any(k in key for k in keys):
+            return c.get("key")
+    return None
+
+
 async def _plot_report_data(unit_id: str) -> dict:
     unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
     if not unit:
@@ -1392,17 +1443,28 @@ async def _plot_report_data(unit_id: str) -> dict:
     cols = proj.get("columns") or []
     pays = await db.payments.find({"unit_id": unit_id}, {"_id": 0}).sort("seq", 1).to_list(500)
 
+    charge_cols = [c for c in cols if c.get("tag") == "charge"]
     verified_by_key: dict = {}
     verified_receipts_total = 0.0
+    unbifurcated_verified = 0.0
     history = []
     for p in pays:
         inst = p.get("notes") or f"Instalment {p.get('seq')}"
         for r in p.get("receipts", []):
             if r.get("verification_status") == "verified":
-                verified_receipts_total += _num(r.get("amount"))
-                for a in r.get("allocations", []):
-                    k = a.get("key", "")
-                    verified_by_key[k] = verified_by_key.get(k, 0.0) + _num(a.get("amount"))
+                ramt = _num(r.get("amount"))
+                verified_receipts_total += ramt
+                allocs = r.get("allocations", [])
+                if allocs:
+                    for a in allocs:
+                        k = a.get("key", "")
+                        verified_by_key[k] = verified_by_key.get(k, 0.0) + _num(a.get("amount"))
+                else:
+                    mk = _map_head_to_key(r.get("head"), charge_cols)
+                    if mk:
+                        verified_by_key[mk] = verified_by_key.get(mk, 0.0) + ramt
+                    else:
+                        unbifurcated_verified += ramt
             history.append({
                 "date": r.get("date") or "",
                 "amount": round(_num(r.get("amount")), 2),
@@ -1425,30 +1487,7 @@ async def _plot_report_data(unit_id: str) -> dict:
         components.append({"label": c.get("label", c["key"]), "amount": amt,
                            "verified": vr, "balance": round(amt - vr, 2)})
 
-    # Reconcile: spread any verified money that wasn't bifurcated into components
-    # (lump-sum receipts) across components pro-rata by amount, capped at balance.
-    allocated_verified = round(sum(c["verified"] for c in components), 2)
-    unallocated = round(verified_receipts_total - allocated_verified, 2)
-    if unallocated > 0.01 and components:
-        tot_amt = sum(c["amount"] for c in components) or 1
-        rem = unallocated
-        for c in components:
-            if rem <= 0.01:
-                break
-            share = min(round(unallocated * c["amount"] / tot_amt, 2), c["balance"], rem)
-            if share > 0:
-                c["verified"] = round(c["verified"] + share, 2)
-                c["balance"] = round(c["balance"] - share, 2)
-                rem = round(rem - share, 2)
-        if rem > 0.01:
-            for c in components:
-                if c["balance"] > 0.01:
-                    add = min(rem, c["balance"])
-                    c["verified"] = round(c["verified"] + add, 2)
-                    c["balance"] = round(c["balance"] - add, 2)
-                    rem = round(rem - add, 2)
-                    if rem <= 0.01:
-                        break
+    unbifurcated_verified = round(unbifurcated_verified, 2)
 
     gst_components = [c for c in components if "gst" in c["label"].lower()]
     gst_total = round(sum(c["amount"] for c in gst_components), 2)
@@ -1500,6 +1539,7 @@ async def _plot_report_data(unit_id: str) -> dict:
         "next_due": next_due,
         "next_due_date": next_due_date or "—",
         "components": components,
+        "unbifurcated_verified": unbifurcated_verified,
         "gst_components": gst_components,
         "gst_total": gst_total,
         "plan": plan,
@@ -1627,6 +1667,12 @@ def _build_report_pdf(d: dict) -> bytes:
                 [[c["label"], _inr_plain(c["amount"]), _inr_plain(c["verified"]), _inr_plain(c["balance"])]
                  for c in d["components"]],
                 aligns=[1, 2, 3], widths=[W * 0.40, W * 0.20, W * 0.20, W * 0.20])
+    if d.get("unbifurcated_verified", 0) > 0.01:
+        story.append(Spacer(1, 3))
+        story.append(Paragraph(
+            f"Note: {_inr_plain(d['unbifurcated_verified'])} of verified receipts is not yet "
+            f"bifurcated across components and is therefore not shown in the rows above.",
+            small))
 
     # Tax Summary (GST)
     if d.get("gst_components"):

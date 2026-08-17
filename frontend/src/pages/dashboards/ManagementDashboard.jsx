@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Building2, Package, ArrowUpRight, Layers, ShieldCheck } from "lucide-react";
-import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo } from "@/components/ui";
+import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -69,7 +69,7 @@ export default function ManagementDashboard({ stats, user }) {
 
         <div className="panel">
           <PanelHead title="Site Bills · PO Payments"
-            meta={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inrShort(s.site_bills?.pending)}</b> · Paid <b className="text-ok">{inrShort(s.site_bills?.paid)}</b></span>} />
+            meta={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(s.site_bills?.pending)}</b> · Paid <b className="text-ok">{inr(s.site_bills?.paid)}</b></span>} />
           {!(s.site_bills?.milestones || []).length ? (
             <EmptyState icon={Package} title="No PO milestones" hint="Payment structures set by accounts show here." />
           ) : (
@@ -111,16 +111,17 @@ function ProjectPanel({ p, idx }) {
               <span className="font-mono-num text-ink font-semibold">{p.sold}</span> / {p.total_units} plots sold
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-right max-w-[240px]">
             <div className="text-[10px] uppercase tracking-[0.16em] text-ink2 font-semibold">Received</div>
-            <div className="kpi-value text-4xl mt-1" title={inr(p.received_total)}><AnimatedNumber value={p.received_total || 0} format={inrShort} /></div>
+            <div className="kpi-value text-2xl lg:text-3xl mt-1 break-words" title={inr(p.received_total)}>{inr(p.received_total)}</div>
+            <div className="text-[10px] text-ink2 mt-1 italic leading-snug">{amountWords(p.received_total)}</div>
           </div>
         </div>
         <div className="mt-5 flex items-center gap-3">
           <div className="flex-1 h-[6px] rounded-full bg-surfacealt overflow-hidden">
             <div className="h-full rounded-full bg-plate transition-[width] duration-700 ease-out" style={{ width: `${rate}%` }} />
           </div>
-          <span className="text-xs font-mono-num text-ink2 shrink-0">{rate}% of {inrShort(p.booked_value)}</span>
+          <span className="text-xs font-mono-num text-ink2 shrink-0">{rate}% of {inr(p.booked_value)}</span>
         </div>
         <div className="grid grid-cols-3 gap-4 mt-5">
           <MiniStat label="Sold value" value={p.booked_value} />
@@ -139,7 +140,7 @@ function ProjectPanel({ p, idx }) {
                 <span className="text-ink2 truncate flex items-center gap-1.5">
                   {pv.label}{pv.tag === "total" && <span className="text-[9px] text-plate font-bold uppercase tracking-wider bg-lime px-1 rounded">Total</span>}
                 </span>
-                <span className="font-mono-num text-ink font-medium shrink-0 ml-3">{inrShort(pv.sum_sold)}</span>
+                <span className="font-mono-num text-ink font-bold text-lg shrink-0 ml-3">{inr(pv.sum_sold)}</span>
               </div>
               <div className="h-[4px] rounded-full bg-surfacealt overflow-hidden">
                 <div className={`h-full rounded-full transition-[width] duration-700 ease-out ${pv.tag === "total" ? "bg-plate" : "bg-brand/60"}`}
@@ -159,7 +160,8 @@ function MiniStat({ label, value, tone = "text-ink", lime }) {
       <div className="text-[10px] uppercase tracking-[0.12em] text-ink2 font-semibold flex items-center gap-1">
         {lime && <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#ccff00" }} />}{label}
       </div>
-      <div className={`font-mono-num font-semibold text-sm mt-1 ${tone}`} title={inr(value)}>{inrShort(value)}</div>
+      <div className={`font-mono-num font-semibold text-base mt-1 break-words ${tone}`} title={inr(value)}>{inr(value)}</div>
+      <div className="text-[9px] text-ink2 mt-0.5 italic leading-snug">{amountWords(value)}</div>
     </div>
   );
 }

@@ -242,6 +242,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
   const [rows, setRows] = useState([]);
   const [components, setComponents] = useState([]);
   const [dlg, setDlg] = useState(null);       // {payment, existing?}
+  const [allocDlg, setAllocDlg] = useState(null);   // receipt to bifurcate
 
   const load = async () => {
     const r = await api.get("/payments", { params: { unit_id: plot.unit_id } });
@@ -342,6 +343,9 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
                         {canRecord && rc.verification_status === "returned" && (
                           <button onClick={() => setDlg({ payment: r, existing: rc })} className="text-brand font-semibold hover:underline" data-testid={`correct-${rc.receipt_id}`}>Correct</button>
                         )}
+                        {canVerify && rc.verification_status === "verified" && (rc.allocations || []).length === 0 && (
+                          <button onClick={() => setAllocDlg({ payment: r, receipt: rc })} className="text-brand font-semibold hover:underline" data-testid={`bifurcate-${rc.receipt_id}`}>Bifurcate</button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -355,6 +359,10 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
       {dlg && (
         <ReceiptDialog payment={dlg.payment} existing={dlg.existing} components={components}
           onClose={() => setDlg(null)} onSaved={() => { setDlg(null); load(); onChanged(); }} />
+      )}
+      {allocDlg && (
+        <AllocationEditor payment={allocDlg.payment} receipt={allocDlg.receipt} components={components}
+          onClose={() => setAllocDlg(null)} onSaved={() => { setAllocDlg(null); load(); onChanged(); }} />
       )}
       {showReport && <ReportViewer unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowReport(false)} />}
     </Modal>
@@ -460,6 +468,63 @@ function ReceiptDialog({ payment, existing, components, onClose, onSaved }) {
         {isPartial && (
           <div><label className="label">Expected date for remaining {inr(remaining - Number(amount))} *</label>
             <input type="date" value={expDate} onChange={(e) => setExpDate(e.target.value)} className="input font-mono-num" data-testid="receipt-expdate" /></div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function AllocationEditor({ payment, receipt, components, onClose, onSaved }) {
+  const amt = round2(receipt.amount);
+  const [alloc, setAlloc] = useState({});
+  const [busy, setBusy] = useState(false);
+  const selected = components.filter(c => alloc[c.key] !== undefined);
+  const allocTotal = round2(Object.values(alloc).reduce((s, v) => s + Number(v || 0), 0));
+  const toggle = (c) => setAlloc(p => { const n = { ...p }; if (n[c.key] !== undefined) delete n[c.key]; else n[c.key] = round2(Math.max(0, c.amount - c.already_paid)); return n; });
+
+  const save = async () => {
+    if (selected.length === 0) return toast.error("Select at least one component");
+    if (Math.abs(allocTotal - amt) > 0.01) return toast.error(`Allocation (${inr(allocTotal)}) must equal the receipt amount (${inr(amt)})`);
+    setBusy(true);
+    try {
+      await api.patch(`/payments/${payment.payment_id}/receipts/${receipt.receipt_id}/allocations`, {
+        allocations: selected.map(c => ({ key: c.key, label: c.label, amount: Number(alloc[c.key] || 0) })),
+      });
+      toast.success("Receipt bifurcated");
+      onSaved();
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal size="lg" title="Bifurcate receipt into components"
+      subtitle={`${inr(amt)} · ${receipt.date}${receipt.head ? ` · ${receipt.head}` : ""} — split across components so the statement reconciles`}
+      onClose={onClose}
+      footer={<>
+        <button onClick={onClose} className="btn-secondary">Cancel</button>
+        <button onClick={save} disabled={busy} className="btn-primary" data-testid="alloc-save">{busy ? "Saving…" : "Save allocation"}</button>
+      </>}>
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-1.5">
+          {components.map(c => (
+            <button key={c.key} onClick={() => toggle(c)} data-testid={`edit-comp-${c.key}`}
+              className={`pill text-xs ${alloc[c.key] !== undefined ? "bg-plate text-white border-plate" : "text-ink2"}`}>{c.label}</button>
+          ))}
+        </div>
+        {selected.length > 0 && (
+          <div className="border border-line rounded-md overflow-x-auto"><table className="w-full">
+            <thead><tr className="bg-surfacealt/60 border-b border-line"><th className="th py-1.5">Component</th><th className="th py-1.5 text-right">Outstanding</th><th className="th py-1.5 text-right">Allocate</th></tr></thead>
+            <tbody>
+              {selected.map(c => (
+                <tr key={c.key} className="border-b border-line last:border-0">
+                  <td className="td py-1.5">{c.label}</td>
+                  <td className="td py-1.5 text-right font-mono-num text-ink2">{inr(round2(c.amount - c.already_paid))}</td>
+                  <td className="td py-1.5 text-right"><input type="number" value={alloc[c.key]} onChange={(e) => setAlloc(p => ({ ...p, [c.key]: e.target.value }))} className="input text-right font-mono-num py-1 w-32" data-testid={`edit-alloc-${c.key}`} /></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr className="bg-surfacealt/40"><td className="px-3 py-1.5 text-sm font-semibold" colSpan={2}>Allocated</td><td className={`px-3 py-1.5 text-right font-mono-num font-bold ${Math.abs(allocTotal - amt) > 0.01 ? "text-bad" : "text-ok"}`} data-testid="edit-alloc-total">{inr(allocTotal)}</td></tr></tfoot>
+          </table></div>
         )}
       </div>
     </Modal>

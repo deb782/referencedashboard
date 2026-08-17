@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Home, TrendingUp, ArrowUpRight, Wallet } from "lucide-react";
-import { EmptyState, inr, inrShort, AnimatedNumber, projectLogo } from "@/components/ui";
+import { EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -76,9 +76,10 @@ export default function PostSalesDashboard({ stats, user }) {
                   </div>
                   <div className="text-xs text-ink2 mt-1">{p.kind || "Project"}</div>
                 </div>
-                <div className="text-right">
+                <div className="text-right max-w-[240px]">
                   <div className="text-[10px] uppercase tracking-[0.16em] text-ink2 font-semibold">Booked value</div>
-                  <div className="kpi-value text-3xl mt-1" title={inr(p.booked_value)}><AnimatedNumber value={p.booked_value || 0} format={inrShort} /></div>
+                  <div className="kpi-value text-2xl lg:text-3xl mt-1 break-words" title={inr(p.booked_value)}>{inr(p.booked_value)}</div>
+                  <div className="text-[10px] text-ink2 mt-1 italic leading-snug">{amountWords(p.booked_value)}</div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mt-6">

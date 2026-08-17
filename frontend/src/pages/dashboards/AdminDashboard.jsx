@@ -52,7 +52,7 @@ export default function AdminDashboard({ stats, user }) {
               <div className="mt-8 h-[6px] rounded-full bg-surfacealt overflow-hidden max-w-md">
                 <div className="h-full rounded-full bg-plate transition-[width] duration-700 ease-out" style={{ width: `${rate}%` }} />
               </div>
-              <div className="text-xs text-ink2 mt-2 max-w-md">Verified collections against total sold value of {inrShort(totals.sold)}.</div>
+              <div className="text-xs text-ink2 mt-2 max-w-md">Verified collections against total sold value of {inr(totals.sold)}.</div>
             </div>
           </div>
           <div className="divide-y divide-line">
@@ -92,7 +92,7 @@ export default function AdminDashboard({ stats, user }) {
 
         <div className="panel">
           <PanelHead title="Site Bills · PO Payments"
-            meta={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inrShort(s.site_bills?.pending)}</b> · Paid <b className="text-ok">{inrShort(s.site_bills?.paid)}</b></span>} />
+            meta={<span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(s.site_bills?.pending)}</b> · Paid <b className="text-ok">{inr(s.site_bills?.paid)}</b></span>} />
           {!(s.site_bills?.milestones || []).length ? (
             <EmptyState icon={Package} title="No PO milestones" hint="Payment structures set by accounts show here." />
           ) : (
@@ -128,12 +128,13 @@ function Meta({ label, value, accent }) {
 
 function HeroStat({ label, value, tone = "text-ink", lime }) {
   return (
-    <div className="p-6 lg:p-8 flex items-center justify-between gap-4">
+    <div className="p-6 lg:p-8">
       <div className="flex items-center gap-2">
         {lime && <span className="w-2 h-2 rounded-full" style={{ background: "#ccff00" }} />}
         <span className="text-[11px] uppercase tracking-[0.16em] text-ink2 font-semibold">{label}</span>
       </div>
-      <div className={`kpi-value text-3xl lg:text-4xl ${tone}`} title={inr(value)}><AnimatedNumber value={value} format={inrShort} /></div>
+      <div className={`kpi-value text-2xl lg:text-3xl mt-1 break-words ${tone}`} title={inr(value)}>{inr(value)}</div>
+      <div className="text-[10px] text-ink2 mt-1 italic leading-snug">{amountWords(value)}</div>
     </div>
   );
 }
@@ -165,7 +166,7 @@ function ProjectPanel({ p, idx }) {
           <div className="flex-1 h-[6px] rounded-full bg-surfacealt overflow-hidden">
             <div className="h-full rounded-full bg-plate transition-[width] duration-700 ease-out" style={{ width: `${rate}%` }} />
           </div>
-          <span className="text-xs font-mono-num text-ink2 shrink-0">{rate}% of {inrShort(p.booked_value)}</span>
+          <span className="text-xs font-mono-num text-ink2 shrink-0">{rate}% of {inr(p.booked_value)}</span>
         </div>
         <div className="grid grid-cols-3 gap-4 mt-5">
           <MiniStat label="Sold value" value={p.booked_value} />
@@ -184,7 +185,7 @@ function ProjectPanel({ p, idx }) {
                 <span className="text-ink2 truncate flex items-center gap-1.5">
                   {pv.label}{pv.tag === "total" && <span className="text-[9px] text-plate font-bold uppercase tracking-wider bg-lime px-1 rounded">Total</span>}
                 </span>
-                <span className="font-mono-num text-ink font-medium shrink-0 ml-3">{inrShort(pv.sum_sold)}</span>
+                <span className="font-mono-num text-ink font-bold text-lg shrink-0 ml-3">{inr(pv.sum_sold)}</span>
               </div>
               <div className="h-[4px] rounded-full bg-surfacealt overflow-hidden">
                 <div className={`h-full rounded-full transition-[width] duration-700 ease-out ${pv.tag === "total" ? "bg-plate" : "bg-brand/60"}`}
@@ -204,7 +205,8 @@ function MiniStat({ label, value, tone = "text-ink", lime }) {
       <div className="text-[10px] uppercase tracking-[0.12em] text-ink2 font-semibold flex items-center gap-1">
         {lime && <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#ccff00" }} />}{label}
       </div>
-      <div className={`font-mono-num font-semibold text-sm mt-1 ${tone}`} title={inr(value)}>{inrShort(value)}</div>
+      <div className={`font-mono-num font-semibold text-base mt-1 break-words ${tone}`} title={inr(value)}>{inr(value)}</div>
+      <div className="text-[9px] text-ink2 mt-0.5 italic leading-snug">{amountWords(value)}</div>
     </div>
   );
 }
