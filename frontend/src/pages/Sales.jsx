@@ -1,6 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import { toast } from "sonner";
-import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye } from "lucide-react";
+import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2 } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
 import { ReportViewer } from "@/components/ReportViewer";
 import { useAuth, can } from "@/lib/auth";
@@ -18,6 +18,8 @@ export default function Sales() {
   const canPay = canViewPay;
   const [verifs, setVerifs] = useState([]);
   const [zipping, setZipping] = useState(null);
+  const [reconciling, setReconciling] = useState(null);
+  const [skipped, setSkipped] = useState(null);   // {name, list}
 
   const bulkZip = async (p) => {
     setZipping(p.project_id);
@@ -25,6 +27,19 @@ export default function Sales() {
     try { await downloadFile(`/projects/${p.project_id}/payment-reports.zip`, `Payment_Reports_${p.name}.zip`); }
     catch (e) { toast.error(apiError(e)); }
     finally { setZipping(null); }
+  };
+
+  const reconcileLegacy = async (p) => {
+    if (!window.confirm(`Auto-split legacy receipts for ${p.name}? Receipts recorded under a component-specific head (e.g. "BSP Collection") will be bifurcated to that component. Receipts with a vague head are left for you to split by hand.`)) return;
+    setReconciling(p.project_id);
+    try {
+      const r = await api.post(`/projects/${p.project_id}/receipts/auto-bifurcate`);
+      const { mapped, skipped: sk, skipped_details } = r.data;
+      toast.success(`Auto-split ${mapped} receipt(s)${sk ? ` · ${sk} still need manual bifurcation` : " · everything reconciled"}`);
+      if (sk > 0) setSkipped({ name: p.name, project_id: p.project_id, list: skipped_details });
+      load();
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setReconciling(null); }
   };
 
   const load = async () => {
@@ -90,6 +105,12 @@ export default function Sales() {
               </span>} className="ag-rise"
               action={<div className="flex items-center gap-4">
                 <span className="text-xs font-mono-num text-ink2">Pending <b className="text-warn">{inr(p.pending)}</b></span>
+                {can(user, "admin", "accounts") && p.plot_count > 0 && (
+                  <button onClick={() => reconcileLegacy(p)} disabled={reconciling === p.project_id} data-testid={`reconcile-legacy-${p.project_id}`}
+                    className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1 disabled:opacity-50">
+                    <Wand2 className="w-3.5 h-3.5" /> {reconciling === p.project_id ? "Reconciling…" : "Reconcile legacy receipts"}
+                  </button>
+                )}
                 {can(user, "admin", "accounts") && p.plot_count > 0 && (
                   <button onClick={() => bulkZip(p)} disabled={zipping === p.project_id} data-testid={`bulk-zip-${p.project_id}`}
                     className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1 disabled:opacity-50">
@@ -161,6 +182,35 @@ export default function Sales() {
       )}
 
       {drill && <PlotDrilldown plot={drill} canRecord={canRecord} canVerify={canVerify} onClose={() => setDrill(null)} onChanged={load} />}
+      {skipped && (
+        <Modal size="lg" title="Receipts needing manual bifurcation"
+          subtitle={`${skipped.name} · ${skipped.list.length} verified receipt(s) had a vague payment head and were not auto-split. Open each plot and use "Bifurcate".`}
+          onClose={() => setSkipped(null)}
+          footer={<button onClick={() => setSkipped(null)} className="btn-secondary">Close</button>}>
+          <div className="overflow-x-auto"><table className="w-full">
+            <thead><tr className="border-b border-line bg-surfacealt/40">
+              <th className="th">Plot</th><th className="th">Buyer</th><th className="th">Instalment</th>
+              <th className="th text-right">Amount</th><th className="th">Date</th><th className="th">Head</th><th className="th"></th>
+            </tr></thead>
+            <tbody>
+              {skipped.list.map((s) => (
+                <tr key={s.receipt_id} className="row" data-testid={`skipped-${s.receipt_id}`}>
+                  <td className="td font-mono-num font-bold">{s.plot_number}</td>
+                  <td className="td text-ink2">{s.buyer_name || "—"}</td>
+                  <td className="td text-ink2">{s.instalment}</td>
+                  <td className="td text-right font-mono-num">{inr(s.amount)}</td>
+                  <td className="td font-mono-num text-ink2">{s.date}</td>
+                  <td className="td text-ink2">{s.head || "—"}</td>
+                  <td className="td text-right">
+                    <button onClick={() => { setSkipped(null); setDrill({ unit_id: s.unit_id, plot_number: s.plot_number, buyer_name: s.buyer_name, project_id: skipped.project_id }); }}
+                      className="text-brand font-semibold hover:underline text-xs" data-testid={`open-plot-${s.receipt_id}`}>Open plot</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </Modal>
+      )}
     </div>
   );
 }

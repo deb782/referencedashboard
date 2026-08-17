@@ -1353,6 +1353,50 @@ async def edit_receipt_allocations(payment_id: str, receipt_id: str, payload: Al
     return {"ok": True}
 
 
+@api.post("/projects/{project_id}/receipts/auto-bifurcate")
+async def auto_bifurcate_project(project_id: str,
+                                  user: User = Depends(require_roles("accounts", "admin"))):
+    """One-click reconcile: for every verified receipt in this project that has no
+    stored breakdown, if its payment head clearly maps to a single component, write the
+    full receipt amount to that component. Receipts with vague/blank heads are skipped
+    and returned so Accounts can bifurcate them by hand."""
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    charge_cols = [c for c in (proj.get("columns") or []) if c.get("tag") == "charge"]
+    label_by_key = {c.get("key"): c.get("label", c.get("key")) for c in charge_cols}
+    units = await db.units.find({"project_id": project_id}, {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1}).to_list(2000)
+    plot_by_unit = {u["unit_id"]: u for u in units}
+    pays = await db.payments.find({"project_id": project_id}, {"_id": 0}).to_list(5000)
+    mapped, skipped = 0, []
+    for p in pays:
+        receipts = p.get("receipts", [])
+        changed = False
+        for rc in receipts:
+            if rc.get("verification_status") != "verified":
+                continue
+            if rc.get("allocations"):
+                continue
+            key = _map_head_to_key(rc.get("head"), charge_cols)
+            amt = round(_num(rc.get("amount")), 2)
+            if key:
+                rc["allocations"] = [{"key": key, "label": label_by_key.get(key, key), "amount": amt}]
+                rc.setdefault("history", []).append({"action": "auto_bifurcated", "by_name": user.name, "at": now()})
+                mapped += 1
+                changed = True
+            else:
+                u = plot_by_unit.get(p.get("unit_id"), {})
+                skipped.append({
+                    "payment_id": p.get("payment_id"), "receipt_id": rc.get("receipt_id"),
+                    "unit_id": p.get("unit_id"), "plot_number": u.get("plot_number", "?"),
+                    "buyer_name": u.get("buyer_name") or "", "instalment": p.get("notes") or f"#{p.get('seq')}",
+                    "amount": amt, "date": rc.get("date") or "", "head": rc.get("head") or "",
+                })
+        if changed:
+            await db.payments.update_one({"payment_id": p["payment_id"]}, {"$set": {"receipts": receipts}})
+    return {"ok": True, "mapped": mapped, "skipped": len(skipped), "skipped_details": skipped}
+
+
 # ----- plot-wise payment report (PDF) -------------------------------------
 def _inr_plain(n) -> str:
     """Indian-grouped rupee string (Rs. prefix). Shows 2 decimals only when non-integer."""
