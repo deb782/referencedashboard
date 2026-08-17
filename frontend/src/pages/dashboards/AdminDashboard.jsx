@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Building2, Package, ArrowUpRight, Layers, ShieldCheck } from "lucide-react";
-import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo } from "@/components/ui";
+import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -45,9 +45,10 @@ export default function AdminDashboard({ stats, user }) {
                 <span className="overline">Total Received · Portfolio</span>
                 <span className="text-[11px] font-semibold text-ink px-2 py-0.5 rounded-md" style={{ background: "#ccff00" }}>{rate}% collected</span>
               </div>
-              <div className="kpi-value text-6xl sm:text-7xl lg:text-[92px] mt-4" title={inr(totals.received)}>
-                <AnimatedNumber value={totals.received} format={inrShort} />
+              <div className="kpi-value text-4xl sm:text-5xl lg:text-6xl mt-4 break-words" title={inr(totals.received)} data-testid="portfolio-received">
+                {inr(totals.received)}
               </div>
+              <div className="text-xs text-ink2 mt-2 italic max-w-xl" data-testid="portfolio-received-words">{amountWords(totals.received)}</div>
               <div className="mt-8 h-[6px] rounded-full bg-surfacealt overflow-hidden max-w-md">
                 <div className="h-full rounded-full bg-plate transition-[width] duration-700 ease-out" style={{ width: `${rate}%` }} />
               </div>
@@ -154,9 +155,10 @@ function ProjectPanel({ p, idx }) {
               <span className="font-mono-num text-ink font-semibold">{p.sold}</span> / {p.total_units} plots sold
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-right max-w-[280px]">
             <div className="text-[10px] uppercase tracking-[0.16em] text-ink2 font-semibold">Received</div>
-            <div className="kpi-value text-4xl mt-1" title={inr(p.received_total)}><AnimatedNumber value={p.received_total} format={inrShort} /></div>
+            <div className="kpi-value text-2xl lg:text-3xl mt-1 break-words" title={inr(p.received_total)} data-testid={`dash-received-${p.project_id}`}>{inr(p.received_total)}</div>
+            <div className="text-[10px] text-ink2 mt-1 italic leading-snug" data-testid={`dash-received-words-${p.project_id}`}>{amountWords(p.received_total)}</div>
           </div>
         </div>
         <div className="mt-5 flex items-center gap-3">

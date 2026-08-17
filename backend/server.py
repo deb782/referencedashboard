@@ -1393,11 +1393,13 @@ async def _plot_report_data(unit_id: str) -> dict:
     pays = await db.payments.find({"unit_id": unit_id}, {"_id": 0}).sort("seq", 1).to_list(500)
 
     verified_by_key: dict = {}
+    verified_receipts_total = 0.0
     history = []
     for p in pays:
         inst = p.get("notes") or f"Instalment {p.get('seq')}"
         for r in p.get("receipts", []):
             if r.get("verification_status") == "verified":
+                verified_receipts_total += _num(r.get("amount"))
                 for a in r.get("allocations", []):
                     k = a.get("key", "")
                     verified_by_key[k] = verified_by_key.get(k, 0.0) + _num(a.get("amount"))
@@ -1422,6 +1424,31 @@ async def _plot_report_data(unit_id: str) -> dict:
             continue
         components.append({"label": c.get("label", c["key"]), "amount": amt,
                            "verified": vr, "balance": round(amt - vr, 2)})
+
+    # Reconcile: spread any verified money that wasn't bifurcated into components
+    # (lump-sum receipts) across components pro-rata by amount, capped at balance.
+    allocated_verified = round(sum(c["verified"] for c in components), 2)
+    unallocated = round(verified_receipts_total - allocated_verified, 2)
+    if unallocated > 0.01 and components:
+        tot_amt = sum(c["amount"] for c in components) or 1
+        rem = unallocated
+        for c in components:
+            if rem <= 0.01:
+                break
+            share = min(round(unallocated * c["amount"] / tot_amt, 2), c["balance"], rem)
+            if share > 0:
+                c["verified"] = round(c["verified"] + share, 2)
+                c["balance"] = round(c["balance"] - share, 2)
+                rem = round(rem - share, 2)
+        if rem > 0.01:
+            for c in components:
+                if c["balance"] > 0.01:
+                    add = min(rem, c["balance"])
+                    c["verified"] = round(c["verified"] + add, 2)
+                    c["balance"] = round(c["balance"] - add, 2)
+                    rem = round(rem - add, 2)
+                    if rem <= 0.01:
+                        break
 
     gst_components = [c for c in components if "gst" in c["label"].lower()]
     gst_total = round(sum(c["amount"] for c in gst_components), 2)
@@ -1648,20 +1675,6 @@ def _build_report_pdf(d: dict) -> bytes:
         story.append(Paragraph("Upcoming dues:", small))
         for u in d["upcoming"]:
             story.append(Paragraph(f"• {u['installment']} — {_inr_plain(u['balance'])} due {u['due'] or '—'}", small))
-
-    # Signatures
-    sig_label = ParagraphStyle("sig", fontName="Helvetica-Bold", fontSize=8.5, textColor=INK, spaceBefore=3)
-    sig_sub = ParagraphStyle("sigs", fontName="Helvetica", fontSize=7.5, textColor=MUTE)
-
-    def sig_col(title, sub):
-        return [Spacer(1, 30), HRFlowable(width=62 * mm, color=INK, thickness=0.6),
-                Paragraph(title, sig_label), Paragraph(sub, sig_sub)]
-
-    sig = Table([[sig_col("Authorised Signatory", ""), "",
-                  sig_col("Customer Acknowledgement", d["customer"] or "Customer")]],
-                colWidths=[W * 0.42, W * 0.16, W * 0.42])
-    sig.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story += [Spacer(1, 18), sig]
 
     story += [Spacer(1, 14), HRFlowable(width="100%", color=BORDER, thickness=0.6), Spacer(1, 4),
               Paragraph(f"Generated {datetime.now(timezone.utc).strftime('%d %b %Y')} · This is a computer-generated statement. Verified figures reflect Accounts-confirmed receipts only.",

@@ -34,6 +34,30 @@ export function AnimatedNumber({ value, format = (v) => Math.round(v).toLocaleSt
   return <span className={className}>{format(display)}</span>;
 }
 
+export function amountWords(n) {
+  let v = Math.round(Number(n) || 0);
+  if (v === 0) return "Rupees Zero Only";
+  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+    "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+  const two = (x) => x < 20 ? ones[x] : tens[Math.floor(x / 10)] + (x % 10 ? " " + ones[x % 10] : "");
+  const three = (x) => {
+    const h = Math.floor(x / 100), r = x % 100;
+    let s = h ? ones[h] + " Hundred" : "";
+    if (r) s += (s ? " " : "") + two(r);
+    return s;
+  };
+  const parts = [];
+  const crore = Math.floor(v / 10000000); v %= 10000000;
+  const lakh = Math.floor(v / 100000); v %= 100000;
+  const thousand = Math.floor(v / 1000); v %= 1000;
+  if (crore) parts.push(three(crore) + " Crore");
+  if (lakh) parts.push(two(lakh) + " Lakh");
+  if (thousand) parts.push(two(thousand) + " Thousand");
+  if (v) parts.push(three(v));
+  return "Rupees " + parts.join(" ").trim() + " Only";
+}
+
 export const inrShort = (n) => {
   const v = Number(n) || 0;
   const sign = v < 0 ? "-" : "";
