@@ -393,3 +393,10 @@ Diagnosed a production data gap (plots 1/31/34 Vacation Village): each plot carr
 - **New endpoint** `GET /api/units/{unit_id}/schedule-log` (admin/accounts/post_sales/management) → entries newest-first.
 - **Frontend** `ScheduleLog` + `LogSide` in Sales.jsx: "History" button on PlotDrilldown (testid `schedule-log-<unitId>`, all roles that reach the drilldown) opens a modal showing each event — Created/Edited badge, by_name + role, timestamp, count/total delta, and a Before→After side-by-side instalment list. Verified in browser + curl (2 entries with correct before/after).
 - Preview DB restored clean (sold 0, payments 0, schedule_logs cleared for test unit). ACTION FOR USER: Redeploy to push to production.
+
+---
+## PHASE 22 · Receipt audit trail (2026-08)
+- Backend already appends a per-receipt `history` array (submitted/returned/resubmitted/verified/bifurcated/auto_bifurcated) with by_name + at + reason; `/payments` returns it and `_verify_rows` exposes it. No backend change needed.
+- **Frontend** `ReceiptTrail` + `buildTrail` in Sales.jsx: a History-icon button on every receipt row in PlotDrilldown (testid `trail-<receiptId>`) AND an "Audit trail" link in each VerificationQueue row (testid `vq-trail-<receiptId>`) opens a timeline modal (steps `trail-step-<i>`) showing Recorded → Returned (with reason) → Corrected & resubmitted → Verified, each with who + when. `buildTrail` falls back to synthesizing from submitted/verified/returned fields for legacy receipts lacking `history`.
+- Verified via curl (full history captured) + browser (timeline modal renders all four steps with colors/reason). Preview DB restored clean.
+- Note (minor, not fixed): `verify_receipt` currently allows verifying a "returned" receipt directly (only blocks already-"verified"); UI never triggers this since returned receipts show "Correct", not YES/NO.

@@ -296,6 +296,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
   const [finalPrice, setFinalPrice] = useState(0);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [trail, setTrail] = useState(null);
 
   const load = async () => {
     const r = await api.get("/payments", { params: { unit_id: plot.unit_id } });
@@ -398,6 +399,9 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <VStatus s={rc.verification_status} />
+                        <button onClick={() => setTrail(rc)} title="Audit trail" className="text-ink2 hover:text-ink" data-testid={`trail-${rc.receipt_id}`}>
+                          <History className="w-3.5 h-3.5" />
+                        </button>
                         {canVerify && rc.verification_status === "pending" && (<>
                           <button onClick={() => act(r.payment_id, rc.receipt_id, "yes")} className="text-ok font-semibold hover:underline" data-testid={`verify-yes-${rc.receipt_id}`}>YES</button>
                           <button onClick={() => act(r.payment_id, rc.receipt_id, "no")} className="text-bad font-semibold hover:underline" data-testid={`verify-no-${rc.receipt_id}`}>NO</button>
@@ -432,6 +436,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
           onClose={() => setShowSchedule(false)} onSaved={() => { setShowSchedule(false); load(); onChanged(); }} />
       )}
       {showLog && <ScheduleLog unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowLog(false)} />}
+      {trail && <ReceiptTrail receipt={trail} onClose={() => setTrail(null)} />}
     </Modal>
   );
 }
@@ -751,8 +756,58 @@ function LogSide({ title, rows, muted }) {
   );
 }
 
+const TRAIL_LABELS = {
+  submitted: "Recorded", verified: "Verified", returned: "Returned",
+  resubmitted: "Corrected & resubmitted", bifurcated: "Bifurcated", auto_bifurcated: "Auto-bifurcated",
+};
+const TRAIL_TONE = {
+  submitted: "text-ink", verified: "text-ok", returned: "text-bad",
+  resubmitted: "text-brand", bifurcated: "text-brand", auto_bifurcated: "text-brand",
+};
+
+function buildTrail(rc) {
+  const h = rc.history || [];
+  if (h.length > 0) return h;
+  // fallback for legacy receipts recorded before history was tracked
+  const t = [];
+  if (rc.submitted_by_name || rc.date) t.push({ action: "submitted", by_name: rc.submitted_by_name || "—", at: rc.submitted_at || rc.date });
+  if (rc.verification_status === "verified") t.push({ action: "verified", by_name: rc.verified_by_name || "—", at: rc.verified_at });
+  if (rc.verification_status === "returned") t.push({ action: "returned", by_name: rc.returned_by_name || "—", at: rc.returned_at, reason: rc.return_reason });
+  return t;
+}
+
+function ReceiptTrail({ receipt, onClose }) {
+  const trail = buildTrail(receipt);
+  const fmt = (iso) => { if (!iso) return ""; try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+  return (
+    <Modal size="md" title="Receipt audit trail"
+      subtitle={`${inr(receipt.amount)} · ${receipt.date}${receipt.mode ? ` · ${receipt.mode}` : ""}${receipt.head ? ` · ${receipt.head}` : ""}`}
+      onClose={onClose}
+      footer={<button onClick={onClose} className="btn-secondary">Close</button>}>
+      {trail.length === 0 ? (
+        <div className="py-6 text-center text-sm text-ink2">No history recorded for this receipt.</div>
+      ) : (
+        <ol className="relative border-l border-line ml-2 space-y-4">
+          {trail.map((e, i) => (
+            <li key={i} className="ml-4" data-testid={`trail-step-${i}`}>
+              <span className={`absolute -left-[5px] w-2.5 h-2.5 rounded-full ${e.action === "returned" ? "bg-bad" : e.action === "verified" ? "bg-ok" : "bg-plate"}`} />
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className={`text-sm font-semibold ${TRAIL_TONE[e.action] || "text-ink"}`}>{TRAIL_LABELS[e.action] || e.action}</span>
+                <span className="text-[11px] font-mono-num text-ink2">{fmt(e.at)}</span>
+              </div>
+              <div className="text-xs text-ink2">by {e.by_name || "—"}</div>
+              {e.reason && <div className="text-xs text-bad mt-0.5">Reason: {e.reason}</div>}
+            </li>
+          ))}
+        </ol>
+      )}
+    </Modal>
+  );
+}
+
 function VerificationQueue({ rows, canVerify, onChanged }) {
   const [f, setF] = useState("pending");
+  const [trail, setTrail] = useState(null);
   const list = rows.filter(r => r.verification_status === f);
   const act = async (r, decision) => {
     let reason = "";
@@ -815,6 +870,9 @@ function VerificationQueue({ rows, canVerify, onChanged }) {
                     )}
                     {r.notes && <div className="text-[11px] text-ink2 mt-1">Note: {r.notes}</div>}
                     {r.expected_remaining_date && <div className="text-[11px] text-ink2 mt-0.5">Expected remaining by {r.expected_remaining_date}</div>}
+                    <button onClick={() => setTrail(r)} className="text-[11px] text-brand font-semibold hover:underline mt-1 flex items-center gap-1" data-testid={`vq-trail-${r.receipt_id}`}>
+                      <History className="w-3 h-3" /> Audit trail
+                    </button>
                   </td>
                 </tr>
                 </Fragment>
@@ -823,6 +881,7 @@ function VerificationQueue({ rows, canVerify, onChanged }) {
           </table></div>
         )}
       </SectionCard>
+      {trail && <ReceiptTrail receipt={trail} onClose={() => setTrail(null)} />}
     </div>
   );
 }
