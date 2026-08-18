@@ -408,3 +408,9 @@ Diagnosed a production data gap (plots 1/31/34 Vacation Village): each plot carr
 - **Activity Feed (Admin only)**: new `GET /api/activity?project_id=&limit=` (require_roles admin) merges schedule_logs (sale booked / schedule edited) + every receipt history event (recorded/verified/returned/corrected/bifurcated) into one timeline, newest first, with actor/plot/project/detail. New `components/ActivityFeed.jsx` added to AdminDashboard with project filter chips (testids `activity-proj-*`, rows `activity-<i>`). Verified curl (6 events, 403 for post_sales) + browser.
 - Point 4: existing "Bifurcate" (per receipt) + "Reconcile legacy receipts" (bulk) tools already let Post-Sales (re)enter component splits; un-bifurcated plots now visibly show ₹0 received per component until fixed. (No extra "needs bifurcation" list built — can add if requested.)
 - Preview DB restored clean (sold 0). ACTION FOR USER: Redeploy to production; run "Recompute totals" + bifurcate/reconcile receipts so the Received-by-component and reports reflect real splits.
+
+---
+## PHASE 24 · Fix "Sold value" vs component Grand Total gap (2026-08)
+- User saw Admin project panel "Sold value" (₹15,45,96,299) ≠ component card "Grand Total · Billed" (₹15,46,16,303), a ~₹20k gap. Root cause: `booked_value` summed each sold plot's STORED `unit.total` (drifted, e.g. Plot 34 was −₹20,000), while the pivot Grand Total sums the LIVE component values.
+- Fix in `_projects_overview`: `booked` is now `Σ over sold plots of Σ charge-component values` — identical to the pivot Grand Total (Billed) by construction, so "Sold value", the % progress, and Outstanding can never diverge from the component card again, regardless of stored-total drift. Verified via curl: even with a corrupted stored total, booked_value == pivot grand total billed exactly.
+- Note: this affects only dashboard aggregates; per-plot PDF/Sales "Billed" still use final_price (Phase 18). Preview DB restored clean.

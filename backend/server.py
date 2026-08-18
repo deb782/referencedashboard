@@ -2351,7 +2351,10 @@ async def _projects_overview(only_project: Optional[str] = None):
             {"project_id": pid},
             {"_id": 0, "status": 1, "total": 1, "data": 1, "final_price": 1}).to_list(5000)
         sold = [u for u in units if u.get("status") == "sold"]
-        booked = round(sum((u.get("total") or u.get("final_price") or 0) for u in sold), 2)
+        _charge_keys = [c["key"] for c in (p.get("columns") or []) if c.get("tag") == "charge"]
+        # Sold value = live sum of component charges over sold plots — identical to the
+        # component card's Grand Total (Billed), so the two can never diverge.
+        booked = round(sum(sum(_num(u.get("data", {}).get(k)) for k in _charge_keys) for u in sold), 2)
         received = round(await _sum_field(db.payments, {"project_id": pid}, "paid_amount"), 2)
         retained = round(await _sum_field(db.cancellations, {"project_id": pid}, "balance_retained"), 2)
         received = round(received + retained, 2)
