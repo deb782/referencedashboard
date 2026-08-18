@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Building2, Package, ArrowUpRight, Layers, ShieldCheck } from "lucide-react";
 import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
+import { CollectionsPeriod } from "@/components/CollectionsPeriod";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -62,6 +63,9 @@ export default function AdminDashboard({ stats, user }) {
           </div>
         </div>
       </section>
+
+      {/* Collections outlook by period */}
+      <CollectionsPeriod />
 
       {/* Per-project analytical panels */}
       <section>

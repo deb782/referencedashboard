@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Clock, ArrowUpRight, Building2 } from "lucide-react";
 import { EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
+import { CollectionsPeriod } from "@/components/CollectionsPeriod";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -51,6 +52,8 @@ export default function AccountsDashboard({ stats, user }) {
           </div>
         </div>
       </section>
+
+      <CollectionsPeriod />
 
       <section>
         <div className="overline mb-4">By Project</div>

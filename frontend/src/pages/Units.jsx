@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Upload, HandCoins, Plus, Home, Pencil, X, Check, Trash2, FileText } from "lucide-react";
+import { Upload, HandCoins, Plus, Home, Pencil, X, Check, Trash2, FileText, Calculator } from "lucide-react";
 import { api, apiError } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { EmptyState, Modal, inr, num2, ProjectSwitch, projectLogo } from "@/components/ui";
@@ -57,6 +57,19 @@ function ProjectInventory({ project, user }) {
   const [reportFor, setReportFor] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [recomputing, setRecomputing] = useState(false);
+
+  const recomputeTotals = async () => {
+    if (!window.confirm(`Recompute the Grand Total of every plot in ${project.name} by summing its component charges? This overwrites any hand-typed total.`)) return;
+    setRecomputing(true);
+    try {
+      const r = await api.post(`/projects/${project.project_id}/recompute-totals`);
+      const { updated, changed } = r.data;
+      toast.success(`Recomputed ${updated} plot(s)${changed ? ` · ${changed} total(s) corrected` : " · all were already correct"}`);
+      load();
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setRecomputing(false); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -92,14 +105,21 @@ function ProjectInventory({ project, user }) {
             </div>
             <div className="text-xs text-ink2 mt-1">{project.kind || "Project"} · {units.length} plots</div>
           </div>
-          {can(user, "admin") && (
+          {can(user, "admin", "post_sales") && (
             <div className="flex items-center gap-2">
-              <button onClick={() => setPlotDlg({ mode: "add" })} className="btn-secondary" data-testid={`add-plot-${project.project_id}`}>
-                <Plus className="w-4 h-4" /> Add plot
-              </button>
-              <button onClick={() => setWizard(true)} className="btn-primary" data-testid={`upload-${project.project_id}`}>
-                <Upload className="w-4 h-4" /> Upload inventory
-              </button>
+              {can(user, "admin", "post_sales") && units.length > 0 && (
+                <button onClick={recomputeTotals} disabled={recomputing} className="btn-secondary" data-testid={`recompute-${project.project_id}`}>
+                  <Calculator className="w-4 h-4" /> {recomputing ? "Recomputing…" : "Recompute totals"}
+                </button>
+              )}
+              {can(user, "admin") && (<>
+                <button onClick={() => setPlotDlg({ mode: "add" })} className="btn-secondary" data-testid={`add-plot-${project.project_id}`}>
+                  <Plus className="w-4 h-4" /> Add plot
+                </button>
+                <button onClick={() => setWizard(true)} className="btn-primary" data-testid={`upload-${project.project_id}`}>
+                  <Upload className="w-4 h-4" /> Upload inventory
+                </button>
+              </>)}
             </div>
           )}
         </div>
@@ -334,18 +354,27 @@ function ResultRow({ icon: Icon, tone, label, value }) {
 function PlotDialog({ project, mode, unit, onClose, onSaved }) {
   const cols = (project.columns || []);
   const editable = cols.filter(c => c.tag !== "plot_id" && c.tag !== "ignore");
+  const chargeKeys = cols.filter(c => c.tag === "charge").map(c => c.key);
+  const totalKey = (cols.find(c => c.tag === "total") || {}).key;
   const [plotNumber, setPlotNumber] = useState(unit?.plot_number || "");
   const [data, setData] = useState(() => {
     const d = {}; editable.forEach(c => { d[c.key] = unit?.data?.[c.key] ?? ""; }); return d;
   });
   const [busy, setBusy] = useState(false);
 
+  const chargeSum = Math.round(chargeKeys.reduce((s, k) => s + Number(data[k] || 0), 0) * 100) / 100;
+  useEffect(() => {
+    if (totalKey && Number(data[totalKey] || 0) !== chargeSum) setData(d => ({ ...d, [totalKey]: chargeSum }));
+  }, [chargeSum, totalKey]);
+
   const save = async () => {
     if (!plotNumber.trim()) return toast.error("Plot number is required");
     setBusy(true);
+    const payload = { ...data };
+    if (totalKey) payload[totalKey] = chargeSum;
     try {
-      if (mode === "add") await api.post(`/projects/${project.project_id}/plots`, { plot_number: plotNumber, data });
-      else await api.patch(`/units/${unit.unit_id}`, { plot_number: plotNumber, data });
+      if (mode === "add") await api.post(`/projects/${project.project_id}/plots`, { plot_number: plotNumber, data: payload });
+      else await api.patch(`/units/${unit.unit_id}`, { plot_number: plotNumber, data: payload });
       toast.success(mode === "add" ? "Plot added" : "Plot updated");
       onSaved();
     } catch (e) { toast.error(apiError(e)); }
@@ -363,13 +392,19 @@ function PlotDialog({ project, mode, unit, onClose, onSaved }) {
       <div className="grid grid-cols-2 gap-4">
         <div><label className="label">Plot number *</label>
           <input value={plotNumber} onChange={(e) => setPlotNumber(e.target.value)} className="input font-mono-num" data-testid="plot-number" /></div>
-        {editable.map(c => (
-          <div key={c.key}>
-            <label className="label">{c.label} <span className="normal-case tracking-normal text-ink2 font-normal">({c.tag})</span></label>
-            <input value={data[c.key]} onChange={(e) => setData({ ...data, [c.key]: e.target.value })}
-              className={`input ${c.tag === "reference" ? "" : "font-mono-num"}`} data-testid={`plot-field-${c.key}`} />
-          </div>
-        ))}
+        {editable.map(c => {
+          const isTotal = c.tag === "total";
+          return (
+            <div key={c.key}>
+              <label className="label">{c.label} <span className="normal-case tracking-normal text-ink2 font-normal">({c.tag})</span>
+                {isTotal && <span className="normal-case tracking-normal text-brand font-semibold ml-1">· auto-summed</span>}</label>
+              <input value={isTotal ? chargeSum : data[c.key]} readOnly={isTotal}
+                onChange={isTotal ? undefined : (e) => setData({ ...data, [c.key]: e.target.value })}
+                className={`input ${c.tag === "reference" ? "" : "font-mono-num"} ${isTotal ? "bg-surfacealt/70 font-bold cursor-not-allowed" : ""}`}
+                data-testid={`plot-field-${c.key}`} />
+            </div>
+          );
+        })}
       </div>
     </Modal>
   );

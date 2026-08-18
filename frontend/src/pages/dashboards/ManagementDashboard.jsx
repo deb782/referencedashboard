@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Building2, Package, ArrowUpRight, Layers, ShieldCheck } from "lucide-react";
 import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
+import { CollectionsPeriod } from "@/components/CollectionsPeriod";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -39,6 +40,8 @@ export default function ManagementDashboard({ stats, user }) {
           <Link to="/procurement" className="btn-primary" data-testid="mgmt-go-procurement">Review requests <ArrowUpRight className="w-4 h-4" /></Link>
         </section>
       )}
+
+      <CollectionsPeriod />
 
       <section>
         <div className="overline mb-4">By Project</div>

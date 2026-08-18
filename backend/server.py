@@ -1536,7 +1536,7 @@ async def _plot_report_data(unit_id: str) -> dict:
     gst_components = [c for c in components if "gst" in c["label"].lower()]
     gst_total = round(sum(c["amount"] for c in gst_components), 2)
 
-    total_payable = round(_num(unit.get("total")) or _num(unit.get("final_price")), 2)
+    total_payable = round(_num(unit.get("final_price")) or _num(unit.get("total")), 2)
     plan, verified_total, awaiting_total = [], 0.0, 0.0
     for p in pays:
         exp = round(_num(p.get("amount")), 2)
@@ -2282,6 +2282,83 @@ async def _projects_overview(only_project: Optional[str] = None):
     for k in ("booked_value", "received_total", "pending_total"):
         con[k] = round(con[k], 2)
     return out, con
+
+
+@api.post("/projects/{project_id}/recompute-totals")
+async def recompute_totals(project_id: str,
+                            user: User = Depends(require_roles("admin", "post_sales"))):
+    """Re-sum every plot's charge components and update the stored Grand Total (and the
+    total-tagged column) so a hand-typed total can never drift from its components."""
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    cols = proj.get("columns") or []
+    charge_keys = [c["key"] for c in cols if c.get("tag") == "charge"]
+    total_cols = [c for c in cols if c.get("tag") == "total"]
+    total_key = total_cols[0]["key"] if total_cols else None
+    units = await db.units.find({"project_id": project_id}, {"_id": 0}).to_list(5000)
+    updated, changed = 0, []
+    for u in units:
+        data = dict(u.get("data", {}) or {})
+        new_total = round(sum(_num(data.get(k)) for k in charge_keys), 2)
+        old_total = round(_num(u.get("total")), 2)
+        if total_key:
+            data[total_key] = new_total
+        await db.units.update_one({"unit_id": u["unit_id"]},
+                                  {"$set": {"total": new_total, "data": data}})
+        updated += 1
+        if abs(new_total - old_total) > 0.001:
+            changed.append({"plot_number": u.get("plot_number"),
+                            "old": old_total, "new": new_total})
+    return {"ok": True, "updated": updated, "changed": len(changed),
+            "changed_details": sorted(changed, key=lambda x: str(x["plot_number"]))[:300]}
+
+
+def _add_months(d, months: int):
+    import calendar
+    m = d.month - 1 + months
+    y = d.year + m // 12
+    m = m % 12 + 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
+    return d.replace(year=y, month=m, day=day)
+
+
+@api.get("/dashboard/collections")
+async def dashboard_collections(months: int = 1, user: User = Depends(get_current_user)):
+    """Expected (instalments due) vs Received (verified against those instalments) for a
+    forward window of `months` from today. Powers the dashboard period selector."""
+    if months not in (1, 3, 6, 12):
+        months = 1
+    start = datetime.now(timezone.utc).date()
+    end = _add_months(start, months)
+    start_s, end_s = start.isoformat(), end.isoformat()
+    proj_q: dict = {}
+    if user.role in ("site_manager", "management") and user.project_id:
+        proj_q = {"project_id": user.project_id}
+    pnames = {p["project_id"]: p["name"] for p in await db.projects.find(
+        proj_q or {}, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)}
+    agg: dict = {}
+    async for p in db.payments.find(proj_q, {"_id": 0}):
+        due = p.get("due_date") or ""
+        if not (len(due) == 10 and start_s <= due <= end_s):
+            continue
+        pid = p.get("project_id")
+        exp = round(_num(p.get("amount")), 2)
+        collected = round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
+                              if r.get("verification_status") == "verified"), 2)
+        a = agg.setdefault(pid, {"expected": 0.0, "collected": 0.0})
+        a["expected"] += exp
+        a["collected"] += collected
+    by_project, tot_exp, tot_col = [], 0.0, 0.0
+    for pid, a in agg.items():
+        exp = round(a["expected"], 2); col = round(a["collected"], 2)
+        tot_exp += exp; tot_col += col
+        by_project.append({"project_id": pid, "name": pnames.get(pid, "\u2014"),
+                           "expected": exp, "collected": col, "outstanding": round(exp - col, 2)})
+    by_project.sort(key=lambda x: -x["expected"])
+    return {"months": months, "start": start_s, "end": end_s,
+            "expected": round(tot_exp, 2), "collected": round(tot_col, 2),
+            "outstanding": round(tot_exp - tot_col, 2), "by_project": by_project}
 
 
 @api.get("/dashboard")
