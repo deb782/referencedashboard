@@ -58,14 +58,24 @@ function ProjectInventory({ project, user }) {
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [recomputing, setRecomputing] = useState(false);
+  const [recomputePrev, setRecomputePrev] = useState(null);   // dry-run result
 
-  const recomputeTotals = async () => {
-    if (!window.confirm(`Recompute the Grand Total of every plot in ${project.name} by summing its component charges? This overwrites any hand-typed total.`)) return;
+  const previewRecompute = async () => {
+    setRecomputing(true);
+    try {
+      const r = await api.post(`/projects/${project.project_id}/recompute-totals`, null, { params: { dry_run: true } });
+      setRecomputePrev(r.data);
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setRecomputing(false); }
+  };
+
+  const applyRecompute = async () => {
     setRecomputing(true);
     try {
       const r = await api.post(`/projects/${project.project_id}/recompute-totals`);
       const { updated, changed } = r.data;
       toast.success(`Recomputed ${updated} plot(s)${changed ? ` · ${changed} total(s) corrected` : " · all were already correct"}`);
+      setRecomputePrev(null);
       load();
     } catch (e) { toast.error(apiError(e)); }
     finally { setRecomputing(false); }
@@ -108,8 +118,8 @@ function ProjectInventory({ project, user }) {
           {can(user, "admin", "post_sales") && (
             <div className="flex items-center gap-2">
               {can(user, "admin", "post_sales") && units.length > 0 && (
-                <button onClick={recomputeTotals} disabled={recomputing} className="btn-secondary" data-testid={`recompute-${project.project_id}`}>
-                  <Calculator className="w-4 h-4" /> {recomputing ? "Recomputing…" : "Recompute totals"}
+                <button onClick={previewRecompute} disabled={recomputing} className="btn-secondary" data-testid={`recompute-${project.project_id}`}>
+                  <Calculator className="w-4 h-4" /> {recomputing ? "Checking…" : "Recompute totals"}
                 </button>
               )}
               {can(user, "admin") && (<>
@@ -183,6 +193,40 @@ function ProjectInventory({ project, user }) {
       {sellFor && <SellDialog unit={sellFor} columns={cols} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
       {cancelFor && <CancelDialog unit={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
       {reportFor && <ReportViewer unitId={reportFor.unit_id} plotNumber={reportFor.plot_number} onClose={() => setReportFor(null)} />}
+      {recomputePrev && (
+        <Modal size="lg" title="Recompute Grand Totals — preview"
+          subtitle={`${project.name} · ${recomputePrev.changed} of ${recomputePrev.updated} plot(s) will change. Nothing has been saved yet.`}
+          onClose={() => setRecomputePrev(null)}
+          footer={<>
+            <button onClick={() => setRecomputePrev(null)} className="btn-secondary">Cancel</button>
+            <button onClick={applyRecompute} disabled={recomputing || recomputePrev.changed === 0} className="btn-primary" data-testid="recompute-apply">
+              {recomputing ? "Applying…" : `Apply to ${recomputePrev.changed} plot(s)`}
+            </button>
+          </>}>
+          {recomputePrev.changed === 0 ? (
+            <div className="text-sm text-ink2 py-6 text-center">Every plot's Grand Total already equals the sum of its components. Nothing to change.</div>
+          ) : (
+            <div className="border border-line rounded-md overflow-hidden max-h-[55vh] overflow-y-auto">
+              <table className="w-full">
+                <thead className="sticky top-0"><tr className="bg-surfacealt/80 border-b border-line">
+                  <th className="th py-2">Plot</th><th className="th py-2 text-right">Current total</th>
+                  <th className="th py-2 text-right">New total</th><th className="th py-2 text-right">Change</th>
+                </tr></thead>
+                <tbody>
+                  {recomputePrev.changed_details.map((c, i) => (
+                    <tr key={i} className="border-b border-line last:border-0" data-testid={`recompute-row-${c.plot_number}`}>
+                      <td className="td py-1.5 font-mono-num font-bold">{c.plot_number}</td>
+                      <td className="td py-1.5 text-right font-mono-num text-ink2">{inr(c.old)}</td>
+                      <td className="td py-1.5 text-right font-mono-num font-semibold">{inr(c.new)}</td>
+                      <td className={`td py-1.5 text-right font-mono-num font-semibold ${c.delta >= 0 ? "text-ok" : "text-bad"}`}>{c.delta >= 0 ? "+" : ""}{inr(c.delta)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Modal>
+      )}
     </section>
   );
 }
@@ -430,6 +474,9 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
   const rmRow = (i) => setSchedule(schedule.filter((_, idx) => idx !== i));
   const updRow = (i, patch) => setSchedule(schedule.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   const scheduleTotal = schedule.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const grandTotal = Number(unit.total || 0);
+  const priceGap = Math.round((Number(form.final_price || 0) - grandTotal) * 100) / 100;
+  const priceMismatch = Math.abs(priceGap) >= 1;
 
   const save = async () => {
     if (!form.sale_date) return toast.error("Sale date is required");
@@ -463,7 +510,14 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
       <div className="grid grid-cols-2 gap-4">
         <div><label className="label">Buyer name</label><input value={form.buyer_name} onChange={(e) => setForm({ ...form, buyer_name: e.target.value })} className="input" data-testid="s-buyer" placeholder="Buyer's name" /></div>
         <div><label className="label">Sale date *</label><input type="date" value={form.sale_date} onChange={(e) => setForm({ ...form, sale_date: e.target.value })} className="input font-mono-num" data-testid="s-date" /></div>
-        <div><label className="label">Final price <span className="normal-case tracking-normal text-ink2 font-normal">(= Grand Total)</span></label><input type="number" value={form.final_price} onChange={(e) => setForm({ ...form, final_price: e.target.value })} className="input font-mono-num" data-testid="s-price" /></div>
+        <div><label className="label">Final price <span className="normal-case tracking-normal text-ink2 font-normal">(= Grand Total)</span></label><input type="number" value={form.final_price} onChange={(e) => setForm({ ...form, final_price: e.target.value })} className={`input font-mono-num ${priceMismatch ? "border-warn" : ""}`} data-testid="s-price" />
+          {priceMismatch && (
+            <div className="flex items-start gap-1.5 mt-1.5 text-[11px] text-warn" data-testid="s-price-warning">
+              <span>⚠</span>
+              <span>Final price is {priceGap > 0 ? "higher" : "lower"} than the Grand Total ({inr(grandTotal)}) by <b>{inr(Math.abs(priceGap))}</b>. Set it to {inr(grandTotal)} unless this is a negotiated price.</span>
+            </div>
+          )}
+        </div>
         <div><label className="label">Booking amount</label><input type="number" value={form.booking_amount} onChange={(e) => setForm({ ...form, booking_amount: e.target.value })} className="input font-mono-num" data-testid="s-booking" /></div>
       </div>
 

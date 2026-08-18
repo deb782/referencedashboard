@@ -2285,10 +2285,11 @@ async def _projects_overview(only_project: Optional[str] = None):
 
 
 @api.post("/projects/{project_id}/recompute-totals")
-async def recompute_totals(project_id: str,
+async def recompute_totals(project_id: str, dry_run: bool = False,
                             user: User = Depends(require_roles("admin", "post_sales"))):
     """Re-sum every plot's charge components and update the stored Grand Total (and the
-    total-tagged column) so a hand-typed total can never drift from its components."""
+    total-tagged column) so a hand-typed total can never drift from its components.
+    With dry_run=true, computes the before/after list WITHOUT writing anything."""
     proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not proj:
         raise HTTPException(404, "Project not found")
@@ -2302,16 +2303,18 @@ async def recompute_totals(project_id: str,
         data = dict(u.get("data", {}) or {})
         new_total = round(sum(_num(data.get(k)) for k in charge_keys), 2)
         old_total = round(_num(u.get("total")), 2)
-        if total_key:
-            data[total_key] = new_total
-        await db.units.update_one({"unit_id": u["unit_id"]},
-                                  {"$set": {"total": new_total, "data": data}})
+        if not dry_run:
+            if total_key:
+                data[total_key] = new_total
+            await db.units.update_one({"unit_id": u["unit_id"]},
+                                      {"$set": {"total": new_total, "data": data}})
         updated += 1
         if abs(new_total - old_total) > 0.001:
             changed.append({"plot_number": u.get("plot_number"),
-                            "old": old_total, "new": new_total})
-    return {"ok": True, "updated": updated, "changed": len(changed),
-            "changed_details": sorted(changed, key=lambda x: str(x["plot_number"]))[:300]}
+                            "old": old_total, "new": new_total,
+                            "delta": round(new_total - old_total, 2)})
+    return {"ok": True, "dry_run": dry_run, "updated": updated, "changed": len(changed),
+            "changed_details": sorted(changed, key=lambda x: str(x["plot_number"]))[:500]}
 
 
 def _add_months(d, months: int):
@@ -2323,10 +2326,7 @@ def _add_months(d, months: int):
     return d.replace(year=y, month=m, day=day)
 
 
-@api.get("/dashboard/collections")
-async def dashboard_collections(months: int = 1, user: User = Depends(get_current_user)):
-    """Expected (instalments due) vs Received (verified against those instalments) for a
-    forward window of `months` from today. Powers the dashboard period selector."""
+async def _collections_data(user: User, months: int) -> dict:
     if months not in (1, 3, 6, 12):
         months = 1
     start = datetime.now(timezone.utc).date()
@@ -2337,18 +2337,35 @@ async def dashboard_collections(months: int = 1, user: User = Depends(get_curren
         proj_q = {"project_id": user.project_id}
     pnames = {p["project_id"]: p["name"] for p in await db.projects.find(
         proj_q or {}, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)}
+    sold = {u["unit_id"]: u for u in await db.units.find(
+        {**proj_q, "status": "sold"},
+        {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1, "project_id": 1}).to_list(8000)}
     agg: dict = {}
+    window_items, overdue_items = [], []
+    overdue_total = 0.0
     async for p in db.payments.find(proj_q, {"_id": 0}):
         due = p.get("due_date") or ""
-        if not (len(due) == 10 and start_s <= due <= end_s):
+        if not (len(due) == 10):
             continue
-        pid = p.get("project_id")
         exp = round(_num(p.get("amount")), 2)
         collected = round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
                               if r.get("verification_status") == "verified"), 2)
-        a = agg.setdefault(pid, {"expected": 0.0, "collected": 0.0})
-        a["expected"] += exp
-        a["collected"] += collected
+        balance = round(exp - collected, 2)
+        u = sold.get(p.get("unit_id"), {})
+        pid = p.get("project_id")
+        row = {"project_id": pid, "project": pnames.get(pid, "\u2014"),
+               "plot_number": u.get("plot_number", "?"), "buyer_name": u.get("buyer_name") or "",
+               "instalment": p.get("notes") or f"#{p.get('seq')}", "due_date": due,
+               "expected": exp, "received": collected, "outstanding": balance}
+        if start_s <= due <= end_s:
+            a = agg.setdefault(pid, {"expected": 0.0, "collected": 0.0})
+            a["expected"] += exp
+            a["collected"] += collected
+            window_items.append(row)
+        if due < start_s and balance > 0.01:
+            days = (start - datetime.fromisoformat(due).date()).days
+            overdue_total += balance
+            overdue_items.append({**row, "days_overdue": days})
     by_project, tot_exp, tot_col = [], 0.0, 0.0
     for pid, a in agg.items():
         exp = round(a["expected"], 2); col = round(a["collected"], 2)
@@ -2356,9 +2373,50 @@ async def dashboard_collections(months: int = 1, user: User = Depends(get_curren
         by_project.append({"project_id": pid, "name": pnames.get(pid, "\u2014"),
                            "expected": exp, "collected": col, "outstanding": round(exp - col, 2)})
     by_project.sort(key=lambda x: -x["expected"])
+    window_items.sort(key=lambda x: x["due_date"])
+    overdue_items.sort(key=lambda x: -x["days_overdue"])
     return {"months": months, "start": start_s, "end": end_s,
             "expected": round(tot_exp, 2), "collected": round(tot_col, 2),
-            "outstanding": round(tot_exp - tot_col, 2), "by_project": by_project}
+            "outstanding": round(tot_exp - tot_col, 2), "by_project": by_project,
+            "overdue": {"total": round(overdue_total, 2), "count": len(overdue_items),
+                        "items": overdue_items[:50]},
+            "items": window_items}
+
+
+@api.get("/dashboard/collections")
+async def dashboard_collections(months: int = 1, user: User = Depends(get_current_user)):
+    """Expected (instalments due) vs Received for a forward window, plus overdue alerts."""
+    d = await _collections_data(user, months)
+    d.pop("items", None)   # detail rows only exposed via CSV
+    return d
+
+
+@api.get("/dashboard/collections.csv")
+async def dashboard_collections_csv(months: int = 1,
+                                     user: User = Depends(require_roles("admin", "accounts"))):
+    d = await _collections_data(user, months)
+    import csv as _csv
+    buf = io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow([f"Collections Outlook  {d['start']} to {d['end']}  ({d['months']} month window)"])
+    w.writerow([])
+    w.writerow(["Project", "Plot", "Buyer", "Instalment", "Due Date", "Expected", "Received", "Outstanding"])
+    for r in d["items"]:
+        w.writerow([r["project"], r["plot_number"], r["buyer_name"], r["instalment"],
+                    r["due_date"], r["expected"], r["received"], r["outstanding"]])
+    w.writerow([])
+    w.writerow(["TOTAL", "", "", "", "", d["expected"], d["collected"], d["outstanding"]])
+    if d["overdue"]["count"]:
+        w.writerow([])
+        w.writerow([f"OVERDUE (past due, unpaid)  count {d['overdue']['count']}  total {d['overdue']['total']}"])
+        w.writerow(["Project", "Plot", "Buyer", "Instalment", "Due Date", "Days Overdue", "Outstanding"])
+        for r in d["overdue"]["items"]:
+            w.writerow([r["project"], r["plot_number"], r["buyer_name"], r["instalment"],
+                        r["due_date"], r["days_overdue"], r["outstanding"]])
+    csv_bytes = buf.getvalue().encode("utf-8")
+    fn = f"Collections_{d['start']}_to_{d['end']}.csv"
+    return Response(content=csv_bytes, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
 @api.get("/dashboard")
