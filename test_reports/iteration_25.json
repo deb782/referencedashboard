@@ -1,0 +1,39 @@
+{
+  "summary": "Verified BUG FIX: Total Payable = schedule sum = Grand Total, plus the check at booking (POST /units/{id}/sell) and edit-schedule (PUT /units/{id}/schedule). 7/7 backend tests pass and frontend Save-disabled + Under/Over hint verified end-to-end. DB cleaned back to 0 sold / 0 payments / 0 schedule_logs.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "sell_wrong_schedule_rejected": "PASS - POST /units/{id}/sell returns 400 with message containing 'Grand Total' when instalments don't sum to GT.",
+    "sell_correct_schedule_ok": "PASS - Sell with 2 instalments summing to GT (Rs.84,19,839.27) returned 200.",
+    "report_total_payable_equals_schedule_sum": "PASS - GET /units/{id}/payment-report returned a valid PDF (200, %PDF magic bytes); underlying _plot_report_data uses schedule sum which equals GT.",
+    "edit_schedule_mismatch_rejected": "PASS - PUT /units/{id}/schedule returns 400 with 'Grand Total' error when instalments don't sum.",
+    "edit_schedule_matching_ok": "PASS - PUT with 3 instalments summing to GT returned 200; schedule sum in DB matches GT.",
+    "rbac_edit_schedule_accounts_403": "PASS",
+    "rbac_edit_schedule_admin_403": "PASS",
+    "frontend_edit_schedule_ui": "PASS - On /sales, opening plot drilldown and Edit schedule modal shows sched-total (Rs.84,19,839.27), sched-gap='Matches Grand Total ✓', schedule-save enabled. Editing sched-amount-0 to be Rs.5,000 short flips sched-gap to 'Under Grand Total by ₹5,000 — adjust to save' and disables schedule-save. Restoring value re-enables Save."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_schedule_grand_total.py",
+    "/app/test_reports/pytest/schedule_gt.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:_plot_report_data computes total_payable as sum of payment schedule amounts, falling back to final_price/total only when there is no schedule — matches the user's contract.",
+    "sell_unit and edit_schedule both enforce abs(sched_total - grand_total) > 1 rupee -> 400 with clear message; the tolerance of 1 rupee is reasonable but note the frontend uses Math.abs(gap) < 1 with the same tolerance (Sales.jsx line 627), keeping UI and API consistent.",
+    "Frontend ScheduleEditor.disable = busy || (grandTotal > 0 && !matches). If a project has 0 charge columns (grandTotal=0), the Save button is not gated — this mirrors backend's `if _gt > 0` guard. OK but consider whether such projects should exist.",
+    "Existing guardrails (verified-amount floor, non-empty-receipt removal) remain intact in edit_schedule — not re-tested here since they were validated previously."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_schedule_grand_total.py (new pytest file)"
+  ],
+  "success_rate": { "backend": "100% (7/7)", "frontend": "100% (Edit schedule Save-disabled flow)" },
+  "test_credentials": "Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123, Admin 9513242807/Repro@123 — all worked.",
+  "seed_data_creation": "Temporarily booked CVF plot 101 (unit_0c43bec88847) with GT Rs.84,19,839.27 for testing; DB cleaned back to 0 sold / 0 payments / 0 schedule_logs post-testing (verified via pymongo counts).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_schedule_grand_total.py is idempotent: it picks any available CVF unit with charge>0, books/cleans it in module fixtures. Safe to re-run. Login endpoint returns 'access_token' (not 'token')."
+}

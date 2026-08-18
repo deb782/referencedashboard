@@ -1099,6 +1099,14 @@ async def sell_unit(unit_id: str, payload: SellUnitRequest,
         raise HTTPException(400, "Unit is already sold")
     if not payload.schedule:
         raise HTTPException(400, "Payment schedule cannot be empty")
+    _ck = [c["key"] for c in (unit.get("columns") or []) if c.get("tag") == "charge"]
+    if not _ck:
+        _proj = await db.projects.find_one({"project_id": unit["project_id"]}, {"_id": 0, "columns": 1})
+        _ck = [c["key"] for c in (_proj.get("columns") or []) if c.get("tag") == "charge"]
+    _gt = round(sum(_num(unit.get("data", {}).get(k)) for k in _ck), 2)
+    _st = round(sum(_num(row.amount) for row in payload.schedule), 2)
+    if _gt > 0 and abs(_st - _gt) > 1:
+        raise HTTPException(400, f"Instalments (\u20B9{_st:,.2f}) must add up to the Grand Total (\u20B9{_gt:,.2f})")
     # Update unit
     await db.units.update_one(
         {"unit_id": unit_id},
@@ -1238,6 +1246,13 @@ async def edit_schedule(unit_id: str, payload: ScheduleEdit,
         raise HTTPException(400, "Only a booked plot has a payment schedule")
     if not payload.installments:
         raise HTTPException(400, "The schedule must have at least one instalment")
+
+    _proj = await db.projects.find_one({"project_id": unit["project_id"]}, {"_id": 0, "columns": 1})
+    _ck = [c["key"] for c in (_proj.get("columns") or []) if c.get("tag") == "charge"]
+    grand_total = round(sum(_num(unit.get("data", {}).get(k)) for k in _ck), 2)
+    sched_total = round(sum(_num(r.amount) for r in payload.installments), 2)
+    if grand_total > 0 and abs(sched_total - grand_total) > 1:
+        raise HTTPException(400, f"Instalments (\u20B9{sched_total:,.2f}) must add up to the Grand Total (\u20B9{grand_total:,.2f})")
 
     existing = await db.payments.find({"unit_id": unit_id}, {"_id": 0}).to_list(500)
     by_id = {p["payment_id"]: p for p in existing}
@@ -1639,7 +1654,10 @@ async def _plot_report_data(unit_id: str) -> dict:
     gst_components = [c for c in components if "gst" in c["label"].lower()]
     gst_total = round(sum(c["amount"] for c in gst_components), 2)
 
-    total_payable = round(_num(unit.get("final_price")) or _num(unit.get("total")), 2)
+    # Total Payable is fetched from the instalment schedule (which the rep sets to equal
+    # the Grand Total). Falls back to final price / stored total only if there is no schedule.
+    _sched_total = round(sum(_num(p.get("amount")) for p in pays), 2)
+    total_payable = _sched_total if _sched_total > 0 else round(_num(unit.get("final_price")) or _num(unit.get("total")), 2)
     plan, verified_total, awaiting_total = [], 0.0, 0.0
     for p in pays:
         exp = round(_num(p.get("amount")), 2)

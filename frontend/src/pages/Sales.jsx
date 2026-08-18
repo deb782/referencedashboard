@@ -298,6 +298,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
   const [showSchedule, setShowSchedule] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [trail, setTrail] = useState(null);
+  const [grandTotal, setGrandTotal] = useState(0);
 
   const load = async () => {
     const r = await api.get("/payments", { params: { unit_id: plot.unit_id } });
@@ -311,6 +312,8 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
       const proj = pr.data.find(p => p.project_id === plot.project_id);
       const unit = un.data.find(u => u.unit_id === plot.unit_id);
       setFinalPrice(Number(unit?.final_price || 0));
+      const chargeCols = (proj?.columns || []).filter(c => c.tag === "charge");
+      setGrandTotal(round2(chargeCols.reduce((s, c) => s + Number(unit?.data?.[c.key] || 0), 0)));
       const cols = (proj?.columns || []).filter(c => c.tag === "charge" || c.tag === "total");
       const paidByKey = {};
       r.data.forEach(p => (p.receipts || []).forEach(rc => {
@@ -433,7 +436,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
       )}
       {showReport && <ReportViewer unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowReport(false)} />}
       {showSchedule && (
-        <ScheduleEditor unitId={plot.unit_id} plotNumber={plot.plot_number} rows={rows} finalPrice={finalPrice}
+        <ScheduleEditor unitId={plot.unit_id} plotNumber={plot.plot_number} rows={rows} grandTotal={grandTotal}
           onClose={() => setShowSchedule(false)} onSaved={() => { setShowSchedule(false); load(); onChanged(); }} />
       )}
       {showLog && <ScheduleLog unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowLog(false)} />}
@@ -604,7 +607,7 @@ function AllocationEditor({ payment, receipt, components, onClose, onSaved }) {
   );
 }
 
-function ScheduleEditor({ unitId, plotNumber, rows, finalPrice, onClose, onSaved }) {
+function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, onSaved }) {
   const [items, setItems] = useState(() => rows.map(r => ({
     payment_id: r.payment_id,
     name: r.notes || "",
@@ -620,7 +623,8 @@ function ScheduleEditor({ unitId, plotNumber, rows, finalPrice, onClose, onSaved
   const addRow = () => setItems([...items, { payment_id: null, name: "", on_possession: false, due_date: "", amount: 0, verified: 0, has_receipts: false }]);
   const rmRow = (i) => setItems(items.filter((_, idx) => idx !== i));
   const total = round2(items.reduce((s, it) => s + Number(it.amount || 0), 0));
-  const gap = round2(total - Number(finalPrice || 0));
+  const gap = round2(total - Number(grandTotal || 0));
+  const matches = Math.abs(gap) < 1;
 
   const save = async () => {
     if (items.length === 0) return toast.error("Add at least one instalment");
@@ -628,6 +632,7 @@ function ScheduleEditor({ unitId, plotNumber, rows, finalPrice, onClose, onSaved
       if (!(Number(it.amount) > 0)) return toast.error("Each instalment needs an amount greater than zero");
       if (it.payment_id && Number(it.amount) < it.verified - 0.01) return toast.error(`"${it.name || 'Instalment'}" already has ${inr(it.verified)} verified — its amount can't be below that`);
     }
+    if (grandTotal > 0 && !matches) return toast.error(`Instalments (${inr(total)}) must add up to the Grand Total (${inr(grandTotal)})`);
     setBusy(true);
     try {
       await api.put(`/units/${unitId}/schedule`, {
@@ -645,11 +650,11 @@ function ScheduleEditor({ unitId, plotNumber, rows, finalPrice, onClose, onSaved
 
   return (
     <Modal size="xl" title={`Edit schedule · Plot ${plotNumber}`}
-      subtitle="Restructure the instalment plan — add, remove or edit rows. An instalment can't drop below what's already verified, and one with recorded receipts can't be removed."
+      subtitle="Restructure the instalment plan — add, remove or edit rows. Instalments must add up to the Grand Total, an instalment can't drop below what's already verified, and one with recorded receipts can't be removed."
       onClose={onClose}
       footer={<>
         <button onClick={onClose} className="btn-secondary">Cancel</button>
-        <button onClick={save} disabled={busy} className="btn-primary" data-testid="schedule-save">{busy ? "Saving…" : "Save schedule"}</button>
+        <button onClick={save} disabled={busy || (grandTotal > 0 && !matches)} className="btn-primary" data-testid="schedule-save">{busy ? "Saving…" : "Save schedule"}</button>
       </>}>
       <div className="space-y-2">
         <div className="grid grid-cols-12 gap-2 px-2 text-[10px] uppercase tracking-[0.12em] text-ink2 font-semibold">
@@ -682,11 +687,11 @@ function ScheduleEditor({ unitId, plotNumber, rows, finalPrice, onClose, onSaved
         ))}
         <button onClick={addRow} className="btn-secondary text-xs" data-testid="sched-add"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
         <div className="flex items-center justify-between border-t border-line pt-3 mt-2 text-sm">
-          <span className="text-ink2">Schedule total</span>
+          <span className="text-ink2">Schedule total <span className="text-ink2">· must equal Grand Total {inr(grandTotal)}</span></span>
           <div className="text-right">
-            <span className="font-mono-num font-bold text-ink" data-testid="sched-total">{inr(total)}</span>
-            <div className={`text-[11px] font-mono-num ${Math.abs(gap) < 1 ? "text-ok" : "text-warn"}`} data-testid="sched-gap">
-              {Math.abs(gap) < 1 ? "Matches Final Price" : `${gap > 0 ? "Over" : "Under"} Final Price (${inr(finalPrice)}) by ${inr(Math.abs(gap))}`}
+            <span className={`font-mono-num font-bold ${matches ? "text-ok" : "text-bad"}`} data-testid="sched-total">{inr(total)}</span>
+            <div className={`text-[11px] font-mono-num ${matches ? "text-ok" : "text-bad"}`} data-testid="sched-gap">
+              {matches ? "Matches Grand Total ✓" : `${gap > 0 ? "Over" : "Under"} Grand Total by ${inr(Math.abs(gap))} — adjust to save`}
             </div>
           </div>
         </div>
