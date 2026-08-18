@@ -1,6 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import { toast } from "sonner";
-import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2 } from "lucide-react";
+import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2, CalendarClock, Plus } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
 import { ReportViewer } from "@/components/ReportViewer";
 import { useAuth, can } from "@/lib/auth";
@@ -293,6 +293,8 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
   const [components, setComponents] = useState([]);
   const [dlg, setDlg] = useState(null);       // {payment, existing?}
   const [allocDlg, setAllocDlg] = useState(null);   // receipt to bifurcate
+  const [finalPrice, setFinalPrice] = useState(0);
+  const [showSchedule, setShowSchedule] = useState(false);
 
   const load = async () => {
     const r = await api.get("/payments", { params: { unit_id: plot.unit_id } });
@@ -305,6 +307,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
       ]);
       const proj = pr.data.find(p => p.project_id === plot.project_id);
       const unit = un.data.find(u => u.unit_id === plot.unit_id);
+      setFinalPrice(Number(unit?.final_price || 0));
       const cols = (proj?.columns || []).filter(c => c.tag === "charge" || c.tag === "total");
       const paidByKey = {};
       r.data.forEach(p => (p.receipts || []).forEach(rc => {
@@ -349,6 +352,11 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
           <button onClick={downloadReport} className="btn-secondary" data-testid={`download-report-${plot.unit_id}`}>
             <Download className="w-4 h-4" /> Download
           </button>
+          {canRecord && (
+            <button onClick={() => setShowSchedule(true)} className="btn-secondary" data-testid={`edit-schedule-${plot.unit_id}`}>
+              <CalendarClock className="w-4 h-4" /> Edit schedule
+            </button>
+          )}
         </div>
         <button onClick={onClose} className="btn-secondary">Close</button>
       </div>}>
@@ -415,6 +423,10 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
           onClose={() => setAllocDlg(null)} onSaved={() => { setAllocDlg(null); load(); onChanged(); }} />
       )}
       {showReport && <ReportViewer unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowReport(false)} />}
+      {showSchedule && (
+        <ScheduleEditor unitId={plot.unit_id} plotNumber={plot.plot_number} rows={rows} finalPrice={finalPrice}
+          onClose={() => setShowSchedule(false)} onSaved={() => { setShowSchedule(false); load(); onChanged(); }} />
+      )}
     </Modal>
   );
 }
@@ -576,6 +588,97 @@ function AllocationEditor({ payment, receipt, components, onClose, onSaved }) {
             <tfoot><tr className="bg-surfacealt/40"><td className="px-3 py-1.5 text-sm font-semibold" colSpan={2}>Allocated</td><td className={`px-3 py-1.5 text-right font-mono-num font-bold ${Math.abs(allocTotal - amt) > 0.01 ? "text-bad" : "text-ok"}`} data-testid="edit-alloc-total">{inr(allocTotal)}</td></tr></tfoot>
           </table></div>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+function ScheduleEditor({ unitId, plotNumber, rows, finalPrice, onClose, onSaved }) {
+  const [items, setItems] = useState(() => rows.map(r => ({
+    payment_id: r.payment_id,
+    name: r.notes || "",
+    on_possession: r.due_date === "On Offer of Possession",
+    due_date: r.due_date === "On Offer of Possession" ? "" : (r.due_date || ""),
+    amount: Number(r.amount || 0),
+    verified: Number(r.paid_amount || 0),
+    has_receipts: (r.receipts || []).length > 0,
+  })));
+  const [busy, setBusy] = useState(false);
+
+  const upd = (i, patch) => setItems(items.map((it, idx) => idx === i ? { ...it, ...patch } : it));
+  const addRow = () => setItems([...items, { payment_id: null, name: "", on_possession: false, due_date: "", amount: 0, verified: 0, has_receipts: false }]);
+  const rmRow = (i) => setItems(items.filter((_, idx) => idx !== i));
+  const total = round2(items.reduce((s, it) => s + Number(it.amount || 0), 0));
+  const gap = round2(total - Number(finalPrice || 0));
+
+  const save = async () => {
+    if (items.length === 0) return toast.error("Add at least one instalment");
+    for (const it of items) {
+      if (!(Number(it.amount) > 0)) return toast.error("Each instalment needs an amount greater than zero");
+      if (it.payment_id && Number(it.amount) < it.verified - 0.01) return toast.error(`"${it.name || 'Instalment'}" already has ${inr(it.verified)} verified — its amount can't be below that`);
+    }
+    setBusy(true);
+    try {
+      await api.put(`/units/${unitId}/schedule`, {
+        installments: items.map(it => ({
+          payment_id: it.payment_id || null,
+          due_date: it.on_possession ? "On Offer of Possession" : (it.due_date || new Date().toISOString().slice(0, 10)),
+          amount: Number(it.amount), notes: it.name || "",
+        })),
+      });
+      toast.success("Schedule updated");
+      onSaved();
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal size="xl" title={`Edit schedule · Plot ${plotNumber}`}
+      subtitle="Restructure the instalment plan — add, remove or edit rows. An instalment can't drop below what's already verified, and one with recorded receipts can't be removed."
+      onClose={onClose}
+      footer={<>
+        <button onClick={onClose} className="btn-secondary">Cancel</button>
+        <button onClick={save} disabled={busy} className="btn-primary" data-testid="schedule-save">{busy ? "Saving…" : "Save schedule"}</button>
+      </>}>
+      <div className="space-y-2">
+        <div className="grid grid-cols-12 gap-2 px-2 text-[10px] uppercase tracking-[0.12em] text-ink2 font-semibold">
+          <div className="col-span-4">Instalment</div><div className="col-span-3">Due</div><div className="col-span-4 text-right">Amount</div><div className="col-span-1" />
+        </div>
+        {items.map((it, i) => (
+          <div key={i} className="grid grid-cols-12 gap-2 items-center border border-line rounded-md p-2" data-testid={`sched-row-${i}`}>
+            <input value={it.name} onChange={(e) => upd(i, { name: e.target.value })} placeholder="Instalment name" className="input col-span-4" data-testid={`sched-name-${i}`} />
+            <div className="col-span-3 flex items-center gap-2">
+              {it.on_possession
+                ? <span className="text-xs text-ink2 italic flex-1">On Offer of Possession</span>
+                : <input type="date" value={it.due_date} onChange={(e) => upd(i, { due_date: e.target.value })} className="input font-mono-num flex-1" data-testid={`sched-due-${i}`} />}
+              <label className="flex items-center gap-1 text-[10px] text-ink2 cursor-pointer whitespace-nowrap" title="On Offer of Possession">
+                <input type="checkbox" checked={it.on_possession} onChange={(e) => upd(i, { on_possession: e.target.checked })} data-testid={`sched-poss-${i}`} /> Poss.
+              </label>
+            </div>
+            <div className="col-span-4">
+              <input type="number" value={it.amount} onChange={(e) => upd(i, { amount: e.target.value })}
+                className={`input text-right font-mono-num ${it.payment_id && Number(it.amount) < it.verified - 0.01 ? "border-bad" : ""}`} data-testid={`sched-amount-${i}`} />
+              {it.verified > 0 && <div className="text-[10px] text-ink2 mt-0.5 text-right">min {inr(it.verified)} verified</div>}
+            </div>
+            <div className="col-span-1 text-right">
+              <button onClick={() => rmRow(i)} disabled={it.has_receipts}
+                title={it.has_receipts ? "Has receipts — cannot remove" : "Remove"}
+                className={`text-bad ${it.has_receipts ? "opacity-30 cursor-not-allowed" : "hover:opacity-70"}`} data-testid={`sched-remove-${i}`}>
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+        <button onClick={addRow} className="btn-secondary text-xs" data-testid="sched-add"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
+        <div className="flex items-center justify-between border-t border-line pt-3 mt-2 text-sm">
+          <span className="text-ink2">Schedule total</span>
+          <div className="text-right">
+            <span className="font-mono-num font-bold text-ink" data-testid="sched-total">{inr(total)}</span>
+            <div className={`text-[11px] font-mono-num ${Math.abs(gap) < 1 ? "text-ok" : "text-warn"}`} data-testid="sched-gap">
+              {Math.abs(gap) < 1 ? "Matches Final Price" : `${gap > 0 ? "Over" : "Under"} Final Price (${inr(finalPrice)}) by ${inr(Math.abs(gap))}`}
+            </div>
+          </div>
+        </div>
       </div>
     </Modal>
   );

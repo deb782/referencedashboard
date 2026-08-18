@@ -274,6 +274,17 @@ class SellUnitRequest(BaseModel):
     schedule: List[ScheduleRow]
 
 
+class ScheduleEditRow(BaseModel):
+    payment_id: Optional[str] = None
+    due_date: str
+    amount: float
+    notes: str = ""
+
+
+class ScheduleEdit(BaseModel):
+    installments: List[ScheduleEditRow]
+
+
 class CancelBookingRequest(BaseModel):
     cancel_date: str
     amount_refunded: float = Field(default=0, ge=0)
@@ -1192,6 +1203,70 @@ async def update_payment(payment_id: str, payload: PaymentUpdate,
             f"Payment received · Plot {unit.get('plot_number')} · "
             f"\u20B9{pay['amount']:,.2f}", "/sales")
     return {"ok": True}
+
+
+@api.put("/units/{unit_id}/schedule")
+async def edit_schedule(unit_id: str, payload: ScheduleEdit,
+                         user: User = Depends(require_roles("post_sales"))):
+    """Post-Sales restructures a booked plot's instalment plan: edit name/due/amount,
+    add or remove instalments. Guardrails: an instalment's amount can't drop below what
+    is already verified, and an instalment with any recorded receipt can't be removed."""
+    unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
+    if not unit:
+        raise HTTPException(404, "Plot not found")
+    if unit.get("status") not in ("sold", "booked"):
+        raise HTTPException(400, "Only a booked plot has a payment schedule")
+    if not payload.installments:
+        raise HTTPException(400, "The schedule must have at least one instalment")
+
+    existing = await db.payments.find({"unit_id": unit_id}, {"_id": 0}).to_list(500)
+    by_id = {p["payment_id"]: p for p in existing}
+    incoming_ids = {r.payment_id for r in payload.installments if r.payment_id}
+
+    def verified_of(p):
+        return round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
+                         if r.get("verification_status") == "verified"), 2)
+
+    for r in payload.installments:
+        amt = round(_num(r.amount), 2)
+        if amt <= 0:
+            raise HTTPException(400, "Each instalment amount must be greater than zero")
+        if r.payment_id:
+            p = by_id.get(r.payment_id)
+            if not p:
+                raise HTTPException(400, "An instalment being edited no longer exists — reload and try again")
+            v = verified_of(p)
+            if amt < v - 0.01:
+                raise HTTPException(400, f"'{p.get('notes') or 'instalment'}' already has \u20B9{v:,.2f} verified — its amount can't be less than that")
+
+    to_delete = [p for pid, p in by_id.items() if pid not in incoming_ids]
+    for p in to_delete:
+        if p.get("receipts"):
+            raise HTTPException(400, f"Can't remove '{p.get('notes') or 'instalment'}' — it has recorded payments. Return/void those receipts first.")
+
+    if to_delete:
+        await db.payments.delete_many({"payment_id": {"$in": [p["payment_id"] for p in to_delete]}})
+
+    for seq, r in enumerate(payload.installments, start=1):
+        amt = round(_num(r.amount), 2)
+        if r.payment_id and r.payment_id in by_id:
+            p = {**by_id[r.payment_id], "seq": seq, "due_date": r.due_date,
+                 "amount": amt, "notes": r.notes or ""}
+            derived = _recompute_payment(p)
+            await db.payments.update_one({"payment_id": r.payment_id},
+                {"$set": {"seq": seq, "due_date": r.due_date, "amount": amt,
+                          "notes": r.notes or "", **derived}})
+        else:
+            doc = Payment(unit_id=unit_id, project_id=unit["project_id"], seq=seq,
+                          due_date=r.due_date, amount=amt, notes=r.notes or "").model_dump()
+            await db.payments.insert_one(doc)
+
+    total = round(sum(_num(r.amount) for r in payload.installments), 2)
+    await notify_role("accounts", "schedule_updated",
+                      f"Schedule updated · Plot {unit.get('plot_number')} · {len(payload.installments)} instalment(s) · \u20B9{total:,.0f}", "/sales")
+    await notify_role("admin", "schedule_updated",
+                      f"Schedule updated · Plot {unit.get('plot_number')} by {user.name}", "/sales")
+    return {"ok": True, "count": len(payload.installments), "schedule_total": total}
 
 
 def _recompute_payment(pay: dict) -> dict:
