@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Building2, Package, ArrowUpRight, Layers, ShieldCheck } from "lucide-react";
 import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
 import { CollectionsPeriod } from "@/components/CollectionsPeriod";
+import { ActivityFeed } from "@/components/ActivityFeed";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -76,6 +77,9 @@ export default function AdminDashboard({ stats, user }) {
         </div>
       </section>
 
+      {/* Project-wide activity timeline */}
+      <ActivityFeed projects={projects} />
+
       {/* Procurement + Site bills */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="panel">
@@ -144,8 +148,7 @@ function HeroStat({ label, value, tone = "text-ink", lime }) {
 }
 
 function ProjectPanel({ p, idx }) {
-  const pivots = (p.pivots || []).filter(pv => pv.tag !== "reference");
-  const max = Math.max(1, ...pivots.map(pv => Math.abs(pv.sum_sold || 0)));
+  const pivots = (p.pivots || []);
   const rate = p.booked_value > 0 ? Math.round((p.received_total / p.booked_value) * 100) : 0;
   return (
     <div className={`panel overflow-hidden ag-rise ag-rise-${idx + 1}`} data-testid={`dash-project-${p.project_id}`}>
@@ -181,22 +184,32 @@ function ProjectPanel({ p, idx }) {
       {pivots.length === 0 ? (
         <EmptyState icon={Layers} title="No pivot yet" hint="Upload this project's inventory to see component totals." />
       ) : (
-        <div className="p-6 lg:p-7 space-y-3 max-h-80 overflow-y-auto">
-          <div className="overline">Sold value by component</div>
-          {pivots.map(pv => (
-            <div key={pv.key} className="group">
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span className="text-ink2 truncate flex items-center gap-1.5">
-                  {pv.label}{pv.tag === "total" && <span className="text-[9px] text-plate font-bold uppercase tracking-wider bg-lime px-1 rounded">Total</span>}
-                </span>
-                <span className="font-mono-num text-ink font-bold text-lg shrink-0 ml-3">{inr(pv.sum_sold)}</span>
+        <div className="p-6 lg:p-7 space-y-2.5 max-h-96 overflow-y-auto">
+          <div className="flex items-center justify-between">
+            <div className="overline">Received by component</div>
+            <div className="text-[10px] uppercase tracking-[0.12em] text-ink2 font-semibold">Billed · <span className="text-ok">Received</span></div>
+          </div>
+          {pivots.map(pv => {
+            const isTotal = pv.tag === "total";
+            const pct = pv.billed > 0 ? Math.min(100, (pv.received / pv.billed) * 100) : 0;
+            return (
+              <div key={pv.key} className={isTotal ? "pt-2.5 mt-1 border-t border-line" : ""} data-testid={`pivot-${pv.key}`}>
+                <div className="flex items-center justify-between text-sm mb-1 gap-3">
+                  <span className={`truncate flex items-center gap-1.5 ${isTotal ? "text-ink font-semibold" : "text-ink2"}`}>
+                    {pv.label}{isTotal && <span className="text-[9px] text-plate font-bold uppercase tracking-wider bg-lime px-1 rounded">Total</span>}
+                  </span>
+                  <span className="font-mono-num shrink-0 text-right whitespace-nowrap">
+                    <span className={`font-bold text-ink ${isTotal ? "text-lg" : ""}`}>{inr(pv.billed)}</span>
+                    <span className="text-ok ml-2 font-semibold">{inr(pv.received)}</span>
+                  </span>
+                </div>
+                <div className="h-[4px] rounded-full bg-surfacealt overflow-hidden">
+                  <div className={`h-full rounded-full transition-[width] duration-700 ease-out ${isTotal ? "bg-plate" : "bg-ok/60"}`}
+                    style={{ width: `${Math.max(pv.received > 0 ? 2 : 0, pct)}%` }} />
+                </div>
               </div>
-              <div className="h-[4px] rounded-full bg-surfacealt overflow-hidden">
-                <div className={`h-full rounded-full transition-[width] duration-700 ease-out ${pv.tag === "total" ? "bg-plate" : "bg-brand/60"}`}
-                  style={{ width: `${Math.max(2, (Math.abs(pv.sum_sold || 0) / max) * 100)}%` }} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

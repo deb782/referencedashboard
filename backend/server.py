@@ -1611,11 +1611,7 @@ async def _plot_report_data(unit_id: str) -> dict:
                         k = a.get("key", "")
                         verified_by_key[k] = verified_by_key.get(k, 0.0) + _num(a.get("amount"))
                 else:
-                    mk = _map_head_to_key(r.get("head"), charge_cols)
-                    if mk:
-                        verified_by_key[mk] = verified_by_key.get(mk, 0.0) + ramt
-                    else:
-                        unbifurcated_verified += ramt
+                    unbifurcated_verified += ramt
             history.append({
                 "date": r.get("date") or "",
                 "amount": round(_num(r.get("amount")), 2),
@@ -2365,16 +2361,30 @@ async def _projects_overview(only_project: Optional[str] = None):
                             if r.get("verification_status") == "pending")
         awaiting = round(awaiting, 2)
         pending = round(max(0.0, booked - received), 2)
+        # verified-received bifurcation per component (only explicit receipt allocations)
+        received_by_key: dict = {}
+        async for _pp in db.payments.find({"project_id": pid}, {"_id": 0, "receipts": 1}):
+            for r in _pp.get("receipts", []):
+                if r.get("verification_status") == "verified":
+                    for a in r.get("allocations", []):
+                        k = a.get("key", "")
+                        received_by_key[k] = received_by_key.get(k, 0.0) + _num(a.get("amount"))
         pivots = []
         for c in (p.get("columns") or []):
-            if c["tag"] not in ("charge", "total", "reference"):
+            if c["tag"] != "charge":
                 continue
             k = c["key"]
             pivots.append({
-                "key": k, "label": c["label"], "tag": c["tag"],
-                "sum_all": round(sum(_num(u.get("data", {}).get(k)) for u in units), 2),
-                "sum_sold": round(sum(_num(u.get("data", {}).get(k)) for u in sold), 2),
+                "key": k, "label": c["label"], "tag": "charge",
+                "billed": round(sum(_num(u.get("data", {}).get(k)) for u in sold), 2),
+                "received": round(received_by_key.get(k, 0.0), 2),
             })
+        # grand total row = exact sum of the component rows above (never a stored total)
+        pivots.append({
+            "key": "__grand_total__", "label": "Grand Total", "tag": "total",
+            "billed": round(sum(pv["billed"] for pv in pivots), 2),
+            "received": round(sum(pv["received"] for pv in pivots), 2),
+        })
         out.append({
             "project_id": pid, "name": p["name"], "kind": p.get("kind", ""),
             "columns": p.get("columns", []),
@@ -2524,6 +2534,47 @@ async def dashboard_collections_csv(months: int = 1,
     fn = f"Collections_{d['start']}_to_{d['end']}.csv"
     return Response(content=csv_bytes, media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
+@api.get("/activity")
+async def activity_feed(project_id: Optional[str] = None, limit: int = 120,
+                        user: User = Depends(require_roles("admin"))):
+    """Unified project-wide timeline: sales/bookings, schedule edits, receipt actions."""
+    q = {"project_id": project_id} if project_id else {}
+    pnames = {p["project_id"]: p["name"] for p in await db.projects.find(
+        {} if not project_id else {"project_id": project_id},
+        {"_id": 0, "project_id": 1, "name": 1}).to_list(50)}
+    units = {u["unit_id"]: u for u in await db.units.find(
+        q or {}, {"_id": 0, "unit_id": 1, "plot_number": 1, "buyer_name": 1}).to_list(8000)}
+    events = []
+    async for l in db.schedule_logs.find(q, {"_id": 0}):
+        created = l.get("action") == "created"
+        events.append({
+            "at": l.get("at"), "type": "sale" if created else "schedule",
+            "actor": l.get("by_name"), "role": l.get("by_role"),
+            "plot_number": l.get("plot_number"), "project": pnames.get(l.get("project_id"), "\u2014"),
+            "detail": (f"Sale booked · {l.get('count_after')} instalment(s) · \u20B9{l.get('total_after', 0):,.0f}"
+                       if created else
+                       f"Schedule edited · {l.get('count_before')}\u2192{l.get('count_after')} instalment(s) · \u20B9{l.get('total_before', 0):,.0f}\u2192\u20B9{l.get('total_after', 0):,.0f}"),
+        })
+    labels = {"submitted": "Receipt recorded", "verified": "Receipt verified",
+              "returned": "Receipt returned", "resubmitted": "Receipt corrected",
+              "bifurcated": "Receipt bifurcated", "auto_bifurcated": "Receipt auto-bifurcated"}
+    async for pay in db.payments.find(q, {"_id": 0}):
+        u = units.get(pay.get("unit_id"), {})
+        for r in pay.get("receipts", []):
+            amt = round(_num(r.get("amount")), 2)
+            for h in r.get("history", []):
+                events.append({
+                    "at": h.get("at"), "type": "receipt", "subtype": h.get("action"),
+                    "actor": h.get("by_name"), "plot_number": u.get("plot_number", "?"),
+                    "project": pnames.get(pay.get("project_id"), "\u2014"),
+                    "detail": f"{labels.get(h.get('action'), h.get('action'))} · \u20B9{amt:,.0f}"
+                              + (f" · {h.get('reason')}" if h.get("reason") else ""),
+                })
+    events = [e for e in events if e.get("at")]
+    events.sort(key=lambda x: x["at"], reverse=True)
+    return events[:limit]
 
 
 @api.get("/dashboard")
