@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2, CalendarClock, Plus, History } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
 import { ReportViewer } from "@/components/ReportViewer";
+import { MismatchedPlots } from "@/components/MismatchedPlots";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, SectionCard, Modal, inr, projectLogo } from "@/components/ui";
 
@@ -93,6 +94,7 @@ export default function Sales() {
 
       {head === "plots" ? (
         <div className="space-y-6">
+          {can(user, "admin", "post_sales") && <MismatchedPlots refresh={plots} onOpen={setDrill} onFixed={load} />}
           {can(user, "admin", "accounts", "post_sales") && <NeedsBifurcation refresh={plots} onOpen={setDrill} />}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <Summary label="Plots — Billed" value={inr(plots.totals?.total)} tone="text-ink" />
@@ -626,6 +628,18 @@ function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, onSaved
   const gap = round2(total - Number(grandTotal || 0));
   const matches = Math.abs(gap) < 1;
 
+  // Snap this instalment so the schedule total equals the Grand Total.
+  const fitHere = (i) => {
+    const it = items[i];
+    const newAmt = round2(Number(it.amount || 0) - gap);
+    if (it.payment_id && newAmt < it.verified - 0.01)
+      return toast.error(`Can't fit onto "${it.name || 'this instalment'}" — it already has ${inr(it.verified)} verified. Pick another instalment.`);
+    if (newAmt <= 0)
+      return toast.error(`Fitting onto "${it.name || 'this instalment'}" would make it ${inr(newAmt)}. Pick another instalment.`);
+    upd(i, { amount: newAmt });
+    toast.success("Snapped to Grand Total");
+  };
+
   const save = async () => {
     if (items.length === 0) return toast.error("Add at least one instalment");
     for (const it of items) {
@@ -675,6 +689,12 @@ function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, onSaved
               <input type="number" value={it.amount} onChange={(e) => upd(i, { amount: e.target.value })}
                 className={`input text-right font-mono-num ${it.payment_id && Number(it.amount) < it.verified - 0.01 ? "border-bad" : ""}`} data-testid={`sched-amount-${i}`} />
               {it.verified > 0 && <div className="text-[10px] text-ink2 mt-0.5 text-right">min {inr(it.verified)} verified</div>}
+              {grandTotal > 0 && !matches && (
+                <button type="button" onClick={() => fitHere(i)}
+                  className="text-[10px] text-brand font-semibold hover:underline mt-0.5 block ml-auto" data-testid={`sched-fit-${i}`}>
+                  Fit here (→ {inr(round2(Number(it.amount || 0) - gap))})
+                </button>
+              )}
             </div>
             <div className="col-span-1 text-right">
               <button onClick={() => rmRow(i)} disabled={it.has_receipts}

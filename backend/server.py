@@ -285,6 +285,10 @@ class ScheduleEdit(BaseModel):
     installments: List[ScheduleEditRow]
 
 
+class AutoFitRequest(BaseModel):
+    payment_id: str
+
+
 class CancelBookingRequest(BaseModel):
     cancel_date: str
     amount_refunded: float = Field(default=0, ge=0)
@@ -1314,6 +1318,106 @@ async def schedule_log(unit_id: str,
     logs = await db.schedule_logs.find({"unit_id": unit_id}, {"_id": 0}).to_list(500)
     logs.sort(key=lambda x: x.get("at", ""), reverse=True)
     return logs
+
+
+async def _plot_grand_total(unit: dict) -> float:
+    """Grand Total = sum of the project's charge-tagged columns on the unit."""
+    ck = [c["key"] for c in (unit.get("columns") or []) if c.get("tag") == "charge"]
+    if not ck:
+        proj = await db.projects.find_one({"project_id": unit["project_id"]}, {"_id": 0, "columns": 1})
+        ck = [c["key"] for c in ((proj or {}).get("columns") or []) if c.get("tag") == "charge"]
+    return round(sum(_num(unit.get("data", {}).get(k)) for k in ck), 2)
+
+
+def _verified_of(p: dict) -> float:
+    return round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
+                     if r.get("verification_status") == "verified"), 2)
+
+
+@api.get("/mismatched-plots")
+async def mismatched_plots(project_id: Optional[str] = None,
+                           user: User = Depends(require_roles("admin", "post_sales"))):
+    """Sold plots whose instalment schedule total does not equal the plot's Grand Total,
+    so they can be snapped back into balance. Returns each plot's instalments too."""
+    q = {"status": "sold"}
+    if project_id:
+        q["project_id"] = project_id
+    pnames = {p["project_id"]: p["name"] for p in await db.projects.find(
+        {}, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)}
+    units = await db.units.find(q, {"_id": 0}).to_list(8000)
+    items, grand = [], 0.0
+    for u in units:
+        gt = await _plot_grand_total(u)
+        if gt <= 0:
+            continue
+        pays = await db.payments.find({"unit_id": u["unit_id"]}, {"_id": 0}).to_list(500)
+        pays.sort(key=lambda x: x.get("seq", 0))
+        sched_total = round(sum(_num(p.get("amount")) for p in pays), 2)
+        diff = round(gt - sched_total, 2)
+        if abs(diff) <= 1:
+            continue
+        grand += abs(diff)
+        items.append({
+            "unit_id": u["unit_id"], "plot_number": u.get("plot_number", "?"),
+            "buyer_name": u.get("buyer_name") or "", "project_id": u.get("project_id"),
+            "project": pnames.get(u.get("project_id"), "\u2014"),
+            "grand_total": gt, "schedule_total": sched_total, "difference": diff,
+            "installments": [{
+                "payment_id": p["payment_id"], "notes": p.get("notes") or "",
+                "due_date": p.get("due_date"), "amount": round(_num(p.get("amount")), 2),
+                "verified": _verified_of(p),
+            } for p in pays],
+        })
+    items.sort(key=lambda x: -abs(x["difference"]))
+    return {"total": round(grand, 2), "count": len(items), "items": items}
+
+
+@api.post("/units/{unit_id}/auto-fit-schedule")
+async def auto_fit_schedule(unit_id: str, payload: AutoFitRequest,
+                            user: User = Depends(require_roles("admin", "post_sales"))):
+    """Snap the schedule to the Grand Total by adjusting the chosen instalment by the
+    exact difference. Blocked if that would push it below its verified received amount."""
+    unit = await db.units.find_one({"unit_id": unit_id}, {"_id": 0})
+    if not unit:
+        raise HTTPException(404, "Plot not found")
+    if unit.get("status") != "sold":
+        raise HTTPException(400, "Only a booked plot has a payment schedule")
+    gt = await _plot_grand_total(unit)
+    if gt <= 0:
+        raise HTTPException(400, "This plot has no Grand Total to fit to")
+    pays = await db.payments.find({"unit_id": unit_id}, {"_id": 0}).to_list(500)
+    pays.sort(key=lambda x: x.get("seq", 0))
+    if not pays:
+        raise HTTPException(400, "This plot has no schedule to adjust")
+    target = next((p for p in pays if p["payment_id"] == payload.payment_id), None)
+    if not target:
+        raise HTTPException(400, "Chosen instalment no longer exists — reload and try again")
+    sched_total = round(sum(_num(p.get("amount")) for p in pays), 2)
+    diff = round(gt - sched_total, 2)
+    if abs(diff) <= 1:
+        raise HTTPException(400, "This schedule already matches the Grand Total")
+    new_amount = round(_num(target.get("amount")) + diff, 2)
+    v = _verified_of(target)
+    if new_amount < v - 0.01:
+        raise HTTPException(400, f"Can't fit onto '{target.get('notes') or 'this instalment'}': it already has \u20B9{v:,.2f} verified, and snapping would drop it to \u20B9{new_amount:,.2f}. Pick another instalment or restructure the schedule.")
+    if new_amount <= 0:
+        raise HTTPException(400, f"Snapping onto '{target.get('notes') or 'this instalment'}' would make it \u20B9{new_amount:,.2f}. Pick another instalment.")
+    before = _sched_snap(pays)
+    updated = {**target, "amount": new_amount}
+    derived = _recompute_payment(updated)
+    await db.payments.update_one({"payment_id": target["payment_id"]},
+        {"$set": {"amount": new_amount, **derived}})
+    after = [{"notes": p.get("notes") or "", "due_date": p.get("due_date"),
+              "amount": new_amount if p["payment_id"] == target["payment_id"] else round(_num(p.get("amount")), 2)}
+             for p in pays]
+    await _log_schedule(unit, "edited", user, before, after)
+    await notify_role("accounts", "schedule_updated",
+                      f"Schedule auto-fit · Plot {unit.get('plot_number')} · '{target.get('notes') or 'instalment'}' → \u20B9{new_amount:,.0f}", "/sales")
+    await notify_role("admin", "schedule_updated",
+                      f"Schedule auto-fit to Grand Total · Plot {unit.get('plot_number')} by {user.name}", "/sales")
+    return {"ok": True, "grand_total": gt, "schedule_total": gt,
+            "adjusted": {"payment_id": target["payment_id"], "notes": target.get("notes") or "",
+                         "old_amount": round(_num(target.get("amount")), 2), "new_amount": new_amount}}
 
 
 def _recompute_payment(pay: dict) -> dict:

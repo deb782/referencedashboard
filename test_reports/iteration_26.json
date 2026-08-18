@@ -1,0 +1,24 @@
+{
+  "summary": "Verified Auto-Fit Schedule + Mismatched Plots feature end-to-end (backend perms + full UI flows) as Post Sales, Admin, and Accounts. Seeded a real mismatch via /app/backend/tests/seed_autofit.py (books CVF Plot 101 then tampers 2nd payment by -2453), drove UI, then cleaned up (sold=0, payments=0).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_autofit_perms.py",
+    "/app/backend/tests/seed_autofit.py",
+    "/app/backend/tests/cleanup_autofit.py",
+    "/app/backend/tests/test_autofit_flow.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "MismatchedPlots.jsx and Sales.jsx ScheduleEditor are cleanly structured with proper data-testids for radios, apply button, fit-here per row, and gap/total indicators — great testability.",
+    "Permission gating for /api/mismatched-plots and /api/units/{id}/auto-fit-schedule (admin+post_sales only) is enforced server-side (403 for accounts) and mirrored client-side via can(user,'admin','post_sales') gating in Sales.jsx and dashboards."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123",
+  "seed_data_creation": "Created reusable seed/cleanup scripts under /app/backend/tests/. Preview DB was left clean (sold=0, payments=0) after tests.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend already covered by test_autofit_flow.py (mismatch detection, auto-fit snap, idempotent 400, cleanup) and new test_autofit_perms.py (403 for accounts on GET /api/mismatched-plots and POST /api/units/{id}/auto-fit-schedule). Frontend covered: (1) Post Sales dashboard shows MismatchedPlots panel with autofit-open-<plot>; (2) Auto-Fit picker opens (autofit-picker) with per-instalment radios (autofit-pick-<pid>), Apply Auto-Fit (autofit-apply) snaps schedule and plot disappears from list; (3) Sales -> Plots as Post Sales shows the panel with GT/Schedule/Difference columns; (4) Open plot drilldown -> Edit schedule shows sched-fit-<i> per row; clicking flips gap indicator to 'Matches Grand Total ✓' and enables Save; Save succeeds and mismatch clears; (5) Save disabled while totals mismatch (regression preserved); (6) Admin dashboard also shows the panel with Auto-Fit; (7) Accounts dashboard and Sales -> Plots do NOT show the panel (data-testid=mismatched-plots absent). 'Below verified' disable state was not exercised via UI because seeded diff is +2453 (add) so no radio would be blocked; that branch is covered by unit logic in MismatchedPlots.jsx (blockedOf) and confirmed by backend rejecting under-verified snaps in test_autofit_flow.py.",
+  "rca of the issue": "N/A — feature works as specified."
+}

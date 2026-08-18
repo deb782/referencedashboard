@@ -3,6 +3,7 @@ import { Building2, Package, ArrowUpRight, Layers, ShieldCheck } from "lucide-re
 import { StatusPill, EmptyState, inr, inrShort, AnimatedNumber, projectLogo, amountWords } from "@/components/ui";
 import { CollectionsPeriod } from "@/components/CollectionsPeriod";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import { MismatchedPlots } from "@/components/MismatchedPlots";
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 const today = () => new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -67,6 +68,9 @@ export default function AdminDashboard({ stats, user }) {
 
       {/* Collections outlook by period */}
       <CollectionsPeriod />
+
+      {/* Booked plots whose schedule ≠ Grand Total */}
+      <MismatchedPlots />
 
       {/* Per-project analytical panels */}
       <section>
