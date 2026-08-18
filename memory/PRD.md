@@ -414,3 +414,9 @@ Diagnosed a production data gap (plots 1/31/34 Vacation Village): each plot carr
 - User saw Admin project panel "Sold value" (₹15,45,96,299) ≠ component card "Grand Total · Billed" (₹15,46,16,303), a ~₹20k gap. Root cause: `booked_value` summed each sold plot's STORED `unit.total` (drifted, e.g. Plot 34 was −₹20,000), while the pivot Grand Total sums the LIVE component values.
 - Fix in `_projects_overview`: `booked` is now `Σ over sold plots of Σ charge-component values` — identical to the pivot Grand Total (Billed) by construction, so "Sold value", the % progress, and Outstanding can never diverge from the component card again, regardless of stored-total drift. Verified via curl: even with a corrupted stored total, booked_value == pivot grand total billed exactly.
 - Note: this affects only dashboard aggregates; per-plot PDF/Sales "Billed" still use final_price (Phase 18). Preview DB restored clean.
+
+---
+## PHASE 25 · Needs-Bifurcation list (2026-08)
+- **New endpoint** `GET /api/needs-bifurcation?project_id=` (admin/accounts/post_sales): for each sold plot, sums verified receipts with NO allocations → returns items {unit_id, plot_number, buyer, project, verified, unbifurcated, receipts} sorted by unbifurcated desc, plus grand {total,count}. Verified via curl (lump plot listed with unbif ₹3,00,000; fully-bifurcated plot excluded).
+- **Frontend** `NeedsBifurcation` panel in Sales.jsx, shown at top of the Plots view for admin/accounts/post_sales: collapsible amber banner "N sold plot(s) have ₹X verified but not yet split by component" + table (Plot/Buyer/Project/Verified/Un-bifurcated/Receipts) with a "Bifurcate" action opening the PlotDrilldown. Auto-refetches when the Sales data reloads (refresh prop). Verified in browser.
+- Preview DB restored clean (sold 0). ACTION FOR USER: Redeploy; this surfaces exactly which plots make up the header-vs-component "Received" gap so Post-Sales can split them.

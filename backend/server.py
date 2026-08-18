@@ -2539,6 +2539,46 @@ async def dashboard_collections_csv(months: int = 1,
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
+@api.get("/needs-bifurcation")
+async def needs_bifurcation(project_id: Optional[str] = None,
+                             user: User = Depends(require_roles("admin", "accounts", "post_sales"))):
+    """Sold plots that have verified money not yet split by component, so Post-Sales
+    knows exactly what to bifurcate. Sorted by the unbifurcated amount, largest first."""
+    q = {"project_id": project_id} if project_id else {}
+    pnames = {p["project_id"]: p["name"] for p in await db.projects.find(
+        {} if not project_id else q, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)}
+    units = {u["unit_id"]: u for u in await db.units.find(
+        {**q, "status": "sold"}, {"_id": 0, "unit_id": 1, "plot_number": 1,
+                                   "buyer_name": 1, "project_id": 1}).to_list(8000)}
+    by_unit: dict = {}
+    async for pay in db.payments.find(q, {"_id": 0, "unit_id": 1, "receipts": 1}):
+        uid = pay.get("unit_id")
+        for r in pay.get("receipts", []):
+            if r.get("verification_status") != "verified":
+                continue
+            amt = round(_num(r.get("amount")), 2)
+            has_alloc = bool(r.get("allocations"))
+            a = by_unit.setdefault(uid, {"verified": 0.0, "unbifurcated": 0.0, "count": 0})
+            a["verified"] += amt
+            if not has_alloc:
+                a["unbifurcated"] += amt
+                a["count"] += 1
+    items, grand = [], 0.0
+    for uid, a in by_unit.items():
+        unb = round(a["unbifurcated"], 2)
+        if unb <= 0.01:
+            continue
+        u = units.get(uid, {})
+        grand += unb
+        items.append({"unit_id": uid, "plot_number": u.get("plot_number", "?"),
+                      "buyer_name": u.get("buyer_name") or "",
+                      "project_id": u.get("project_id"), "project": pnames.get(u.get("project_id"), "\u2014"),
+                      "verified": round(a["verified"], 2), "unbifurcated": unb,
+                      "receipts": a["count"]})
+    items.sort(key=lambda x: -x["unbifurcated"])
+    return {"total": round(grand, 2), "count": len(items), "items": items}
+
+
 @api.get("/activity")
 async def activity_feed(project_id: Optional[str] = None, limit: int = 120,
                         user: User = Depends(require_roles("admin"))):

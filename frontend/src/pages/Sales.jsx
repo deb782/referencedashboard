@@ -93,6 +93,7 @@ export default function Sales() {
 
       {head === "plots" ? (
         <div className="space-y-6">
+          {can(user, "admin", "accounts", "post_sales") && <NeedsBifurcation refresh={plots} onOpen={setDrill} />}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <Summary label="Plots — Billed" value={inr(plots.totals?.total)} tone="text-ink" />
             <Summary label="Received" value={inr(plots.totals?.paid)} tone="text-ok" />
@@ -802,6 +803,53 @@ function ReceiptTrail({ receipt, onClose }) {
         </ol>
       )}
     </Modal>
+  );
+}
+
+function NeedsBifurcation({ refresh, onOpen }) {
+  const [data, setData] = useState({ total: 0, count: 0, items: [] });
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    api.get("/needs-bifurcation").then(r => setData(r.data)).catch(() => {});
+  }, [refresh]);
+  if (!data.count) return null;
+  return (
+    <div className="panel border-warn/30 bg-warn/5 overflow-hidden" data-testid="needs-bifurcation">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+        <span className="flex items-center gap-2 text-warn font-semibold text-sm">
+          <Wand2 className="w-4 h-4" />
+          {data.count} sold plot(s) have {inr(data.total)} verified but not yet split by component
+        </span>
+        <ChevronRight className={`w-4 h-4 text-ink2 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-t border-warn/20 overflow-x-auto">
+          <table className="w-full">
+            <thead><tr className="bg-surfacealt/50 border-b border-line">
+              <th className="th">Plot</th><th className="th">Buyer</th><th className="th">Project</th>
+              <th className="th text-right">Verified</th><th className="th text-right">Un-bifurcated</th>
+              <th className="th text-center">Receipts</th><th className="th"></th>
+            </tr></thead>
+            <tbody>
+              {data.items.map((it) => (
+                <tr key={it.unit_id} className="row" data-testid={`needs-bif-${it.plot_number}`}>
+                  <td className="td font-mono-num font-bold">{it.plot_number}</td>
+                  <td className="td text-ink2">{it.buyer_name || "—"}</td>
+                  <td className="td text-ink2">{it.project}</td>
+                  <td className="td text-right font-mono-num text-ok">{inr(it.verified)}</td>
+                  <td className="td text-right font-mono-num font-semibold text-warn">{inr(it.unbifurcated)}</td>
+                  <td className="td text-center font-mono-num text-ink2">{it.receipts}</td>
+                  <td className="td text-right">
+                    <button onClick={() => onOpen({ unit_id: it.unit_id, plot_number: it.plot_number, buyer_name: it.buyer_name, project_id: it.project_id })}
+                      className="text-brand font-semibold hover:underline text-xs" data-testid={`needs-bif-open-${it.plot_number}`}>Bifurcate</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
