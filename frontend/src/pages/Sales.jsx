@@ -1,6 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import { toast } from "sonner";
-import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2, CalendarClock, Plus } from "lucide-react";
+import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2, CalendarClock, Plus, History } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
 import { ReportViewer } from "@/components/ReportViewer";
 import { useAuth, can } from "@/lib/auth";
@@ -295,6 +295,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
   const [allocDlg, setAllocDlg] = useState(null);   // receipt to bifurcate
   const [finalPrice, setFinalPrice] = useState(0);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showLog, setShowLog] = useState(false);
 
   const load = async () => {
     const r = await api.get("/payments", { params: { unit_id: plot.unit_id } });
@@ -357,6 +358,9 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
               <CalendarClock className="w-4 h-4" /> Edit schedule
             </button>
           )}
+          <button onClick={() => setShowLog(true)} className="btn-secondary" data-testid={`schedule-log-${plot.unit_id}`}>
+            <History className="w-4 h-4" /> History
+          </button>
         </div>
         <button onClick={onClose} className="btn-secondary">Close</button>
       </div>}>
@@ -427,6 +431,7 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
         <ScheduleEditor unitId={plot.unit_id} plotNumber={plot.plot_number} rows={rows} finalPrice={finalPrice}
           onClose={() => setShowSchedule(false)} onSaved={() => { setShowSchedule(false); load(); onChanged(); }} />
       )}
+      {showLog && <ScheduleLog unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowLog(false)} />}
     </Modal>
   );
 }
@@ -681,6 +686,68 @@ function ScheduleEditor({ unitId, plotNumber, rows, finalPrice, onClose, onSaved
         </div>
       </div>
     </Modal>
+  );
+}
+
+function ScheduleLog({ unitId, plotNumber, onClose }) {
+  const [logs, setLogs] = useState(null);
+  useEffect(() => {
+    api.get(`/units/${unitId}/schedule-log`).then(r => setLogs(r.data)).catch(() => setLogs([]));
+  }, [unitId]);
+
+  const fmtWhen = (iso) => { try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+
+  return (
+    <Modal size="xl" title={`Schedule history · Plot ${plotNumber}`}
+      subtitle="Every time this plot's payment plan was created or restructured, and by whom."
+      onClose={onClose}
+      footer={<button onClick={onClose} className="btn-secondary">Close</button>}>
+      {logs === null ? (
+        <div className="py-8 text-center text-ink2 text-sm">Loading…</div>
+      ) : logs.length === 0 ? (
+        <div className="py-8 text-center text-ink2 text-sm">No schedule changes recorded yet.</div>
+      ) : (
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+          {logs.map((l, i) => (
+            <div key={l.log_id || i} className="border border-line rounded-md p-3" data-testid={`log-entry-${i}`}>
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className={`pill text-[10px] ${l.action === "created" ? "bg-ok/10 text-ok border-ok/30" : "bg-brand/10 text-brand border-brand/30"}`}>{l.action === "created" ? "Created" : "Edited"}</span>
+                  <span className="text-sm text-ink font-medium">{l.by_name}</span>
+                  <span className="text-[11px] text-ink2 uppercase tracking-wide">{l.by_role}</span>
+                </div>
+                <span className="text-xs font-mono-num text-ink2">{fmtWhen(l.at)}</span>
+              </div>
+              <div className="text-[11px] text-ink2 mb-2 font-mono-num">
+                {l.count_before} → {l.count_after} instalment(s) · total {inr(l.total_before)} → <b className="text-ink">{inr(l.total_after)}</b>
+              </div>
+              <div className={`grid gap-3 ${l.action === "edited" ? "sm:grid-cols-2" : "grid-cols-1"}`}>
+                {l.action === "edited" && <LogSide title="Before" rows={l.before} muted />}
+                <LogSide title={l.action === "edited" ? "After" : "Schedule"} rows={l.after} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function LogSide({ title, rows, muted }) {
+  return (
+    <div>
+      <div className="overline mb-1">{title}</div>
+      <div className={`border border-line rounded ${muted ? "opacity-70" : ""}`}>
+        {(rows || []).length === 0 ? (
+          <div className="px-2 py-1.5 text-xs text-ink2">—</div>
+        ) : rows.map((r, i) => (
+          <div key={i} className="flex items-center justify-between gap-2 px-2 py-1 border-b border-line last:border-0 text-xs">
+            <span className="text-ink truncate">{r.notes || "—"}</span>
+            <span className="text-ink2 font-mono-num whitespace-nowrap">{r.due_date} · <b className="text-ink">{inr(r.amount)}</b></span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

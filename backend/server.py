@@ -1070,6 +1070,25 @@ def _clean_plot_data(proj: dict, data: dict):
     return area, total, clean
 
 
+def _sched_snap(payments: list) -> list:
+    return [{"notes": p.get("notes") or "", "due_date": p.get("due_date"),
+             "amount": round(_num(p.get("amount")), 2)}
+            for p in sorted(payments, key=lambda x: x.get("seq", 0))]
+
+
+async def _log_schedule(unit: dict, action: str, user: User, before: list, after: list):
+    await db.schedule_logs.insert_one({
+        "log_id": new_id("slog"), "unit_id": unit.get("unit_id"),
+        "project_id": unit.get("project_id"), "plot_number": unit.get("plot_number"),
+        "action": action, "by_user_id": user.user_id, "by_name": user.name,
+        "by_role": user.role, "at": now(),
+        "before": before, "after": after,
+        "count_before": len(before), "count_after": len(after),
+        "total_before": round(sum(_num(x.get("amount")) for x in before), 2),
+        "total_after": round(sum(_num(x.get("amount")) for x in after), 2),
+    })
+
+
 @api.post("/units/{unit_id}/sell")
 async def sell_unit(unit_id: str, payload: SellUnitRequest,
                      user: User = Depends(require_roles("post_sales", "admin"))):
@@ -1110,6 +1129,7 @@ async def sell_unit(unit_id: str, payload: SellUnitRequest,
     link = f"/sales"
     await notify_role("admin", "sale_recorded", msg, link)
     await notify_role("accounts", "sale_recorded", msg, link)
+    await _log_schedule({**unit, "unit_id": unit_id}, "created", user, [], _sched_snap(docs))
     return {"ok": True, "payments": docs}
 
 
@@ -1262,11 +1282,23 @@ async def edit_schedule(unit_id: str, payload: ScheduleEdit,
             await db.payments.insert_one(doc)
 
     total = round(sum(_num(r.amount) for r in payload.installments), 2)
+    after_snap = [{"notes": r.notes or "",
+                   "due_date": r.due_date,
+                   "amount": round(_num(r.amount), 2)} for r in payload.installments]
+    await _log_schedule(unit, "edited", user, _sched_snap(existing), after_snap)
     await notify_role("accounts", "schedule_updated",
                       f"Schedule updated · Plot {unit.get('plot_number')} · {len(payload.installments)} instalment(s) · \u20B9{total:,.0f}", "/sales")
     await notify_role("admin", "schedule_updated",
                       f"Schedule updated · Plot {unit.get('plot_number')} by {user.name}", "/sales")
     return {"ok": True, "count": len(payload.installments), "schedule_total": total}
+
+
+@api.get("/units/{unit_id}/schedule-log")
+async def schedule_log(unit_id: str,
+                        user: User = Depends(require_roles("admin", "accounts", "post_sales", "management"))):
+    logs = await db.schedule_logs.find({"unit_id": unit_id}, {"_id": 0}).to_list(500)
+    logs.sort(key=lambda x: x.get("at", ""), reverse=True)
+    return logs
 
 
 def _recompute_payment(pay: dict) -> dict:
