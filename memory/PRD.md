@@ -438,3 +438,14 @@ Diagnosed a production data gap (plots 1/31/34 Vacation Village): each plot carr
 - User choices honoured: Auto-Fit in BOTH the editor and the list; user picks the instalment each time; below-verified snaps blocked with a clear message; list on BOTH Sales and dashboards; Post Sales + Admin only.
 - Verified: testing_agent iteration_26 = 100% backend perms + full UI flows, 0 bugs; DB left clean (sold=0, payments=0). Reusable tests: /app/backend/tests/test_autofit_flow.py, test_autofit_perms.py, seed_autofit.py, cleanup_autofit.py.
 - ACTION FOR USER: Redeploy. Then on production, open a dashboard or Sales → Plots to see any plots whose schedule drifted from the Grand Total and fix each with one click via Auto-Fit.
+
+---
+## PHASE 28 · Full payment-plan edit + Accounts re-approval of paid revisions (2026-06)
+- **Card action changed**: the Mismatched Plots card now opens a FULL payment-plan editor ("Edit payment plan", testid `edit-plan-<plot>`) instead of the single-instalment Auto-Fit picker. Reps can edit/add/remove any instalment; the per-row "Fit here" quick-snap remains inside the editor; Save stays blocked until the schedule sums to the Grand Total.
+- **ScheduleEditor extracted** to `components/ScheduleEditor.jsx` (exported), reused by the mismatched card (Sales + both dashboards) and the plot drilldown. Shows a `sched-paid-warning` banner + per-row "Paid · needs re-approval" label when instalments have receipts.
+- **Paid-instalment revisions → Accounts re-approval**: `PUT /units/{id}/schedule` now returns `{revision_raised}` and, when a change touches a PAID instalment (has any receipt of any status), inserts a `schedule_revisions` doc + notifies Accounts. Change saves immediately (informational approval per default).
+- **New endpoints**: `GET /api/schedule-revisions?status=&project_id=` (accounts+admin; post_sales→403) and `POST /api/schedule-revisions/{id}/review` (marks approved, double-approve→400).
+- **New "Schedule Revisions" tab** in Sales → Payments (testid `head-revisions`, admin/accounts only) with pending/approved filters, before→after view of each changed paid instalment (`revision-affected-<id>-<i>`), and a "Recheck & approve" action (`revision-approve-<id>`).
+- User choices honoured: card → single "Edit payment plan"; "already paid" = any receipt; revisions land in the new Schedule Revisions tab; Grand-Total equality still enforced on Save.
+- Verified: testing_agent iteration_27 = 100% backend + frontend, 0 bugs; DB left clean (sold=0, payments=0, revisions=0). Tests: test_autofit_flow.py, test_schedule_revision.py, seed_ui_mismatch.py.
+- ACTION FOR USER: Redeploy to push these changes to production.

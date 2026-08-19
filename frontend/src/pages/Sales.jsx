@@ -1,9 +1,10 @@
 import { useEffect, useState, Fragment } from "react";
 import { toast } from "sonner";
-import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2, CalendarClock, Plus, History } from "lucide-react";
+import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, Download, Eye, Wand2, CalendarClock, History } from "lucide-react";
 import { api, apiError, downloadFile } from "@/lib/api";
 import { ReportViewer } from "@/components/ReportViewer";
 import { MismatchedPlots } from "@/components/MismatchedPlots";
+import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, SectionCard, Modal, inr, projectLogo } from "@/components/ui";
 
@@ -18,6 +19,7 @@ export default function Sales() {
   const canViewPay = can(user, "post_sales", "accounts", "admin");
   const canPay = canViewPay;
   const [verifs, setVerifs] = useState([]);
+  const [revisions, setRevisions] = useState([]);
   const [zipping, setZipping] = useState(null);
   const [reconciling, setReconciling] = useState(null);
   const [skipped, setSkipped] = useState(null);   // {name, list}
@@ -49,6 +51,7 @@ export default function Sales() {
     if (can(user, "admin", "accounts")) {
       try { const c = await api.get("/cancellations"); setCancels(c.data); } catch (e) { /* ignore */ }
       try { const v = await api.get("/payments/verifications"); setVerifs(v.data); } catch (e) { /* ignore */ }
+      try { const sr = await api.get("/schedule-revisions"); setRevisions(sr.data); } catch (e) { /* ignore */ }
     }
   };
   useEffect(() => { load(); }, []);
@@ -87,6 +90,16 @@ export default function Sales() {
             <div className="text-left">
               <div className="font-display font-bold leading-none">Cancellations</div>
               <div className={`text-xs mt-1 font-mono-num ${head === "cancellations" ? "text-white/80" : "text-ink2"}`}>{cancels.length} record(s)</div>
+            </div>
+          </button>
+        )}
+        {can(user, "admin", "accounts") && (
+          <button onClick={() => setHead("revisions")} data-testid="head-revisions"
+            className={`flex items-center gap-3 px-5 py-3 rounded-lg border transition-colors duration-300 ${head === "revisions" ? "bg-plate text-white border-plate" : "bg-white border-line text-ink2 hover:bg-surfacealt"}`}>
+            <History className="w-5 h-5" />
+            <div className="text-left">
+              <div className="font-display font-bold leading-none">Schedule Revisions</div>
+              <div className={`text-xs mt-1 font-mono-num ${head === "revisions" ? "text-white/80" : "text-ink2"}`}>{revisions.filter(r => r.status === "pending_review").length} to review</div>
             </div>
           </button>
         )}
@@ -180,6 +193,8 @@ export default function Sales() {
         </div>
       ) : head === "cancellations" ? (
         <CancellationsView rows={cancels} />
+      ) : head === "revisions" ? (
+        <ScheduleRevisions rows={revisions} canReview={can(user, "accounts", "admin")} onChanged={load} />
       ) : (
         <VerificationQueue rows={verifs} canVerify={canVerify} onChanged={load} />
       )}
@@ -609,117 +624,6 @@ function AllocationEditor({ payment, receipt, components, onClose, onSaved }) {
   );
 }
 
-function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, onSaved }) {
-  const [items, setItems] = useState(() => rows.map(r => ({
-    payment_id: r.payment_id,
-    name: r.notes || "",
-    on_possession: r.due_date === "On Offer of Possession",
-    due_date: r.due_date === "On Offer of Possession" ? "" : (r.due_date || ""),
-    amount: Number(r.amount || 0),
-    verified: Number(r.paid_amount || 0),
-    has_receipts: (r.receipts || []).length > 0,
-  })));
-  const [busy, setBusy] = useState(false);
-
-  const upd = (i, patch) => setItems(items.map((it, idx) => idx === i ? { ...it, ...patch } : it));
-  const addRow = () => setItems([...items, { payment_id: null, name: "", on_possession: false, due_date: "", amount: 0, verified: 0, has_receipts: false }]);
-  const rmRow = (i) => setItems(items.filter((_, idx) => idx !== i));
-  const total = round2(items.reduce((s, it) => s + Number(it.amount || 0), 0));
-  const gap = round2(total - Number(grandTotal || 0));
-  const matches = Math.abs(gap) < 1;
-
-  // Snap this instalment so the schedule total equals the Grand Total.
-  const fitHere = (i) => {
-    const it = items[i];
-    const newAmt = round2(Number(it.amount || 0) - gap);
-    if (it.payment_id && newAmt < it.verified - 0.01)
-      return toast.error(`Can't fit onto "${it.name || 'this instalment'}" — it already has ${inr(it.verified)} verified. Pick another instalment.`);
-    if (newAmt <= 0)
-      return toast.error(`Fitting onto "${it.name || 'this instalment'}" would make it ${inr(newAmt)}. Pick another instalment.`);
-    upd(i, { amount: newAmt });
-    toast.success("Snapped to Grand Total");
-  };
-
-  const save = async () => {
-    if (items.length === 0) return toast.error("Add at least one instalment");
-    for (const it of items) {
-      if (!(Number(it.amount) > 0)) return toast.error("Each instalment needs an amount greater than zero");
-      if (it.payment_id && Number(it.amount) < it.verified - 0.01) return toast.error(`"${it.name || 'Instalment'}" already has ${inr(it.verified)} verified — its amount can't be below that`);
-    }
-    if (grandTotal > 0 && !matches) return toast.error(`Instalments (${inr(total)}) must add up to the Grand Total (${inr(grandTotal)})`);
-    setBusy(true);
-    try {
-      await api.put(`/units/${unitId}/schedule`, {
-        installments: items.map(it => ({
-          payment_id: it.payment_id || null,
-          due_date: it.on_possession ? "On Offer of Possession" : (it.due_date || new Date().toISOString().slice(0, 10)),
-          amount: Number(it.amount), notes: it.name || "",
-        })),
-      });
-      toast.success("Schedule updated");
-      onSaved();
-    } catch (e) { toast.error(apiError(e)); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <Modal size="xl" title={`Edit schedule · Plot ${plotNumber}`}
-      subtitle="Restructure the instalment plan — add, remove or edit rows. Instalments must add up to the Grand Total, an instalment can't drop below what's already verified, and one with recorded receipts can't be removed."
-      onClose={onClose}
-      footer={<>
-        <button onClick={onClose} className="btn-secondary">Cancel</button>
-        <button onClick={save} disabled={busy || (grandTotal > 0 && !matches)} className="btn-primary" data-testid="schedule-save">{busy ? "Saving…" : "Save schedule"}</button>
-      </>}>
-      <div className="space-y-2">
-        <div className="grid grid-cols-12 gap-2 px-2 text-[10px] uppercase tracking-[0.12em] text-ink2 font-semibold">
-          <div className="col-span-4">Instalment</div><div className="col-span-3">Due</div><div className="col-span-4 text-right">Amount</div><div className="col-span-1" />
-        </div>
-        {items.map((it, i) => (
-          <div key={i} className="grid grid-cols-12 gap-2 items-center border border-line rounded-md p-2" data-testid={`sched-row-${i}`}>
-            <input value={it.name} onChange={(e) => upd(i, { name: e.target.value })} placeholder="Instalment name" className="input col-span-4" data-testid={`sched-name-${i}`} />
-            <div className="col-span-3 flex items-center gap-2">
-              {it.on_possession
-                ? <span className="text-xs text-ink2 italic flex-1">On Offer of Possession</span>
-                : <input type="date" value={it.due_date} onChange={(e) => upd(i, { due_date: e.target.value })} className="input font-mono-num flex-1" data-testid={`sched-due-${i}`} />}
-              <label className="flex items-center gap-1 text-[10px] text-ink2 cursor-pointer whitespace-nowrap" title="On Offer of Possession">
-                <input type="checkbox" checked={it.on_possession} onChange={(e) => upd(i, { on_possession: e.target.checked })} data-testid={`sched-poss-${i}`} /> Poss.
-              </label>
-            </div>
-            <div className="col-span-4">
-              <input type="number" value={it.amount} onChange={(e) => upd(i, { amount: e.target.value })}
-                className={`input text-right font-mono-num ${it.payment_id && Number(it.amount) < it.verified - 0.01 ? "border-bad" : ""}`} data-testid={`sched-amount-${i}`} />
-              {it.verified > 0 && <div className="text-[10px] text-ink2 mt-0.5 text-right">min {inr(it.verified)} verified</div>}
-              {grandTotal > 0 && !matches && (
-                <button type="button" onClick={() => fitHere(i)}
-                  className="text-[10px] text-brand font-semibold hover:underline mt-0.5 block ml-auto" data-testid={`sched-fit-${i}`}>
-                  Fit here (→ {inr(round2(Number(it.amount || 0) - gap))})
-                </button>
-              )}
-            </div>
-            <div className="col-span-1 text-right">
-              <button onClick={() => rmRow(i)} disabled={it.has_receipts}
-                title={it.has_receipts ? "Has receipts — cannot remove" : "Remove"}
-                className={`text-bad ${it.has_receipts ? "opacity-30 cursor-not-allowed" : "hover:opacity-70"}`} data-testid={`sched-remove-${i}`}>
-                <XCircle className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-        <button onClick={addRow} className="btn-secondary text-xs" data-testid="sched-add"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
-        <div className="flex items-center justify-between border-t border-line pt-3 mt-2 text-sm">
-          <span className="text-ink2">Schedule total <span className="text-ink2">· must equal Grand Total {inr(grandTotal)}</span></span>
-          <div className="text-right">
-            <span className={`font-mono-num font-bold ${matches ? "text-ok" : "text-bad"}`} data-testid="sched-total">{inr(total)}</span>
-            <div className={`text-[11px] font-mono-num ${matches ? "text-ok" : "text-bad"}`} data-testid="sched-gap">
-              {matches ? "Matches Grand Total ✓" : `${gap > 0 ? "Over" : "Under"} Grand Total by ${inr(Math.abs(gap))} — adjust to save`}
-            </div>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 function ScheduleLog({ unitId, plotNumber, onClose }) {
   const [logs, setLogs] = useState(null);
   useEffect(() => {
@@ -958,5 +862,61 @@ function VerificationQueue({ rows, canVerify, onChanged }) {
     </div>
   );
 }
+
+function ScheduleRevisions({ rows, canReview, onChanged }) {
+  const [f, setF] = useState("pending_review");
+  const list = rows.filter(r => r.status === f);
+  const approve = async (r) => {
+    const note = window.prompt("Optional note for this approval (leave blank to just approve):") ?? "";
+    try {
+      await api.post(`/schedule-revisions/${r.revision_id}/review`, { note });
+      toast.success("Revision approved");
+      onChanged();
+    } catch (e) { toast.error(apiError(e)); }
+  };
+  return (
+    <div className="space-y-4" data-testid="revisions-view">
+      <div className="flex flex-wrap gap-2">
+        {[["pending_review", "To review"], ["approved", "Approved"]].map(([s, label]) => (
+          <button key={s} onClick={() => setF(s)} data-testid={`rfilter-${s}`}
+            className={`pill text-xs ${f === s ? "bg-plate text-white border-plate" : "text-ink2"}`}>{label} ({rows.filter(r => r.status === s).length})</button>
+        ))}
+      </div>
+      <SectionCard title="Schedule revisions on paid plots">
+        {list.length === 0 ? <EmptyState icon={History} title="Nothing here" hint="Revisions to paid schedules show up here for review." /> : (
+          <div className="divide-y divide-line">
+            {list.map(r => (
+              <div key={r.revision_id} className="py-4 px-1" data-testid={`revision-${r.revision_id}`}>
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <div className="font-display font-bold text-ink">Plot {r.plot_number} · {r.buyer_name || "—"}</div>
+                    <div className="text-xs text-ink2 mt-0.5">Revised by {r.revised_by_name} · {(r.revised_at || "").slice(0, 16).replace("T", " ")}</div>
+                  </div>
+                  {r.status === "pending_review"
+                    ? (canReview && <button onClick={() => approve(r)} className="btn-primary text-sm" data-testid={`revision-approve-${r.revision_id}`}>Recheck &amp; approve</button>)
+                    : <span className="text-xs text-ok font-semibold" data-testid={`revision-approved-${r.revision_id}`}>✓ Approved by {r.reviewed_by_name}</span>}
+                </div>
+                <div className="mt-3 space-y-2">
+                  <div className="text-[10px] uppercase tracking-[0.14em] font-semibold text-ink2">Changed paid instalment(s)</div>
+                  {(r.affected || []).map((a, i) => (
+                    <div key={i} className="text-sm flex flex-wrap items-center gap-2 bg-surfacealt/50 border border-line rounded-md px-3 py-2" data-testid={`revision-affected-${r.revision_id}-${i}`}>
+                      <span className="font-semibold text-ink">{a.notes || "Instalment"}</span>
+                      <span className="font-mono-num text-ink2">{inr(a.before.amount)} · {a.before.due_date}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-ink2" />
+                      <span className="font-mono-num text-ink font-semibold">{inr(a.after.amount)} · {a.after.due_date}</span>
+                      {a.verified > 0 && <span className="text-[10px] text-warn font-semibold">{inr(a.verified)} verified</span>}
+                    </div>
+                  ))}
+                </div>
+                {r.review_note && <div className="text-xs text-ink2 mt-2">Note: {r.review_note}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;

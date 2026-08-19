@@ -20,7 +20,7 @@ import bcrypt
 import jwt
 from dotenv import load_dotenv
 from fastapi import (
-    Depends, FastAPI, File, Form, HTTPException, Header, Query, UploadFile,
+    Body, Depends, FastAPI, File, Form, HTTPException, Header, Query, UploadFile,
 )
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -1305,11 +1305,83 @@ async def edit_schedule(unit_id: str, payload: ScheduleEdit,
                    "due_date": r.due_date,
                    "amount": round(_num(r.amount), 2)} for r in payload.installments]
     await _log_schedule(unit, "edited", user, _sched_snap(existing), after_snap)
-    await notify_role("accounts", "schedule_updated",
-                      f"Schedule updated · Plot {unit.get('plot_number')} · {len(payload.installments)} instalment(s) · \u20B9{total:,.0f}", "/sales")
+
+    # If any PAID instalment (has receipts) was changed, raise a revision for Accounts
+    # to recheck & approve. "Paid" = has at least one receipt of any status.
+    affected = []
+    for r in payload.installments:
+        if not r.payment_id:
+            continue
+        prev = by_id.get(r.payment_id)
+        if not prev or not prev.get("receipts"):
+            continue
+        new_amt = round(_num(r.amount), 2)
+        old_amt = round(_num(prev.get("amount")), 2)
+        old_due = prev.get("due_date")
+        old_notes = prev.get("notes") or ""
+        if abs(new_amt - old_amt) > 0.01 or old_due != r.due_date or old_notes != (r.notes or ""):
+            affected.append({
+                "payment_id": r.payment_id, "notes": r.notes or prev.get("notes") or "",
+                "before": {"amount": old_amt, "due_date": old_due, "notes": old_notes},
+                "after": {"amount": new_amt, "due_date": r.due_date, "notes": r.notes or ""},
+                "receipts": len(prev.get("receipts", [])),
+                "verified": round(sum(_num(x.get("amount")) for x in prev.get("receipts", [])
+                                      if x.get("verification_status") == "verified"), 2),
+            })
+    revision_raised = bool(affected)
+    if revision_raised:
+        rev = {
+            "revision_id": new_id("srev"), "unit_id": unit_id, "project_id": unit["project_id"],
+            "plot_number": unit.get("plot_number"), "buyer_name": unit.get("buyer_name") or "",
+            "revised_by": user.user_id, "revised_by_name": user.name, "revised_by_role": user.role,
+            "revised_at": now(), "status": "pending_review",
+            "before": _sched_snap(existing), "after": after_snap,
+            "affected": affected, "schedule_total": total,
+            "reviewed_by": None, "reviewed_by_name": None, "reviewed_at": None, "review_note": None,
+        }
+        await db.schedule_revisions.insert_one(rev)
+        await notify_role("accounts", "schedule_revision",
+                          f"Schedule revised on PAID plot {unit.get('plot_number')} · {len(affected)} paid instalment(s) changed — recheck & approve", "/sales")
+
+    if revision_raised:
+        pass
+    else:
+        await notify_role("accounts", "schedule_updated",
+                          f"Schedule updated · Plot {unit.get('plot_number')} · {len(payload.installments)} instalment(s) · \u20B9{total:,.0f}", "/sales")
     await notify_role("admin", "schedule_updated",
                       f"Schedule updated · Plot {unit.get('plot_number')} by {user.name}", "/sales")
-    return {"ok": True, "count": len(payload.installments), "schedule_total": total}
+    return {"ok": True, "count": len(payload.installments), "schedule_total": total,
+            "revision_raised": revision_raised}
+
+
+@api.get("/schedule-revisions")
+async def list_schedule_revisions(status: Optional[str] = None, project_id: Optional[str] = None,
+                                  user: User = Depends(require_roles("accounts", "admin"))):
+    q: dict = {}
+    if status:
+        q["status"] = status
+    if project_id:
+        q["project_id"] = project_id
+    revs = await db.schedule_revisions.find(q, {"_id": 0}).to_list(1000)
+    revs.sort(key=lambda x: x.get("revised_at", ""), reverse=True)
+    return revs
+
+
+@api.post("/schedule-revisions/{revision_id}/review")
+async def review_schedule_revision(revision_id: str, payload: dict = Body(default={}),
+                                   user: User = Depends(require_roles("accounts", "admin"))):
+    rev = await db.schedule_revisions.find_one({"revision_id": revision_id}, {"_id": 0})
+    if not rev:
+        raise HTTPException(404, "Revision not found")
+    if rev.get("status") == "approved":
+        raise HTTPException(400, "This revision is already approved")
+    await db.schedule_revisions.update_one({"revision_id": revision_id}, {"$set": {
+        "status": "approved", "reviewed_by": user.user_id, "reviewed_by_name": user.name,
+        "reviewed_at": now(), "review_note": (payload or {}).get("note") or "",
+    }})
+    await notify_role("post_sales", "schedule_revision_approved",
+                      f"Schedule revision approved · Plot {rev.get('plot_number')} by {user.name}", "/sales")
+    return {"ok": True}
 
 
 @api.get("/units/{unit_id}/schedule-log")

@@ -1,0 +1,25 @@
+{
+  "summary": "Full E2E test of the new 'Edit payment plan' flow (Auto-Fit → full ScheduleEditor) and the Schedule Revisions tab. Backend regression scripts (test_autofit_flow.py, test_schedule_revision.py) both PASS. Frontend UI tested via Playwright covering: Post Sales mismatch card → Edit payment plan editor → Save disabled until totals match → Fit here snap → save clears mismatch; drilldown edit-schedule for a paid plot → paid warning + 'Paid · needs re-approval' label → save raises revision → Accounts toast; Post Sales does NOT see head-revisions tab; Accounts sees the tab, revision-affected before→after row, Recheck & approve → moves to Approved filter with revision-approved marker. DB left clean.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_autofit_flow.py",
+    "/app/backend/tests/test_schedule_revision.py",
+    "/app/backend/tests/seed_ui_mismatch.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Sales.jsx is ~923 lines and contains multiple sub-components (ScheduleRevisions, NeedsBifurcation, PlotDrilldown, etc.); consider splitting into separate files for maintainability.",
+    "ScheduleEditor.jsx uses `Math.abs(gap) < 1` (rupee tolerance) — acceptable for INR whole-rupee schedules but should be documented."
+  ],
+  "updated_files": [
+    "/app/backend/tests/seed_ui_mismatch.py (new seed/cleanup helper)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123",
+  "seed_data_creation": "seed_ui_mismatch.py seeds one mismatched Central Vista plot (tampered amount, diff ₹2453) and one plot with a verified receipt on installment A. Cleanup mode reverts all sold units to available and wipes payments/schedule_logs/schedule_revisions. Verified clean: sold=0, payments=0, revisions=0.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All frontend expectations from the review request passed: edit-plan-<plot> replaces auto-fit; ScheduleEditor shows sched-row/name/due/amount/add/remove/fit/total/gap; schedule-save disabled until totals match; sched-paid-warning + paid label appear when receipts exist; head-revisions gated to admin/accounts (post_sales gets none in UI and 403 on backend); revision-affected shows before→after; approval moves to rfilter-approved with revision-approved-<id> marker. Old autofit-picker modal no longer opens from the mismatch card. Use seed_ui_mismatch.py for setup and `python seed_ui_mismatch.py cleanup` to restore DB.",
+  "rca of the issue": "N/A — no bugs found."
+}
