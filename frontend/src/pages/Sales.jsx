@@ -4,6 +4,7 @@ import { Home, Building2, Wallet, ChevronRight, Receipt, XCircle, ShieldCheck, D
 import { api, apiError, downloadFile } from "@/lib/api";
 import { ReportViewer } from "@/components/ReportViewer";
 import { MismatchedPlots } from "@/components/MismatchedPlots";
+import { BifurcationProgress } from "@/components/BifurcationProgress";
 import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, SectionCard, Modal, inr, projectLogo } from "@/components/ui";
@@ -108,6 +109,7 @@ export default function Sales() {
       {head === "plots" ? (
         <div className="space-y-6">
           {can(user, "admin", "post_sales") && <MismatchedPlots refresh={plots} onOpen={setDrill} onFixed={load} />}
+          {can(user, "admin", "accounts", "post_sales") && <BifurcationProgress refresh={plots} />}
           {can(user, "admin", "accounts", "post_sales") && <NeedsBifurcation refresh={plots} onOpen={setDrill} />}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <Summary label="Plots — Billed" value={inr(plots.totals?.total)} tone="text-ink" />

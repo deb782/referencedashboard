@@ -2773,6 +2773,46 @@ async def needs_bifurcation(project_id: Optional[str] = None,
     return {"total": round(grand, 2), "count": len(items), "items": items}
 
 
+@api.get("/bifurcation-progress")
+async def bifurcation_progress(project_id: Optional[str] = None,
+                               user: User = Depends(require_roles("admin", "accounts", "post_sales", "management"))):
+    """Per-project reconciliation progress: what share of VERIFIED money has been split
+    by component (bifurcated) vs still unallocated. Lets reps see what's left to reconcile."""
+    q = {"project_id": project_id} if project_id else {}
+    pnames = {p["project_id"]: p["name"] for p in await db.projects.find(
+        {} if not project_id else q, {"_id": 0, "project_id": 1, "name": 1}).to_list(50)}
+    per: dict = {}
+    async for pay in db.payments.find(q, {"_id": 0, "project_id": 1, "receipts": 1}):
+        pid = pay.get("project_id")
+        for r in pay.get("receipts", []):
+            if r.get("verification_status") != "verified":
+                continue
+            amt = round(_num(r.get("amount")), 2)
+            a = per.setdefault(pid, {"verified": 0.0, "bifurcated": 0.0, "pending": 0})
+            a["verified"] += amt
+            if r.get("allocations"):
+                a["bifurcated"] += amt
+            else:
+                a["pending"] += 1
+    items = []
+    for pid, a in per.items():
+        v = round(a["verified"], 2)
+        if v <= 0.01:
+            continue
+        b = round(a["bifurcated"], 2)
+        items.append({"project_id": pid, "project": pnames.get(pid, "\u2014"),
+                      "verified": v, "bifurcated": b, "unbifurcated": round(v - b, 2),
+                      "pending_receipts": a["pending"],
+                      "pct": round(b / v * 100, 1) if v > 0 else 0.0})
+    items.sort(key=lambda x: x["pct"])  # least reconciled first
+    tv = round(sum(i["verified"] for i in items), 2)
+    tb = round(sum(i["bifurcated"] for i in items), 2)
+    return {"items": items, "verified": tv, "bifurcated": tb,
+            "unbifurcated": round(tv - tb, 2),
+            "pct": round(tb / tv * 100, 1) if tv > 0 else 0.0}
+
+
+
 @api.get("/activity")
 async def activity_feed(project_id: Optional[str] = None, limit: int = 120,
                         user: User = Depends(require_roles("admin"))):

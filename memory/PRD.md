@@ -449,3 +449,10 @@ Diagnosed a production data gap (plots 1/31/34 Vacation Village): each plot carr
 - User choices honoured: card → single "Edit payment plan"; "already paid" = any receipt; revisions land in the new Schedule Revisions tab; Grand-Total equality still enforced on Save.
 - Verified: testing_agent iteration_27 = 100% backend + frontend, 0 bugs; DB left clean (sold=0, payments=0, revisions=0). Tests: test_autofit_flow.py, test_schedule_revision.py, seed_ui_mismatch.py.
 - ACTION FOR USER: Redeploy to push these changes to production.
+
+
+## PHASE 29 · Bifurcation Progress (2026-06)
+- **New endpoint** `GET /api/bifurcation-progress?project_id=` (admin, accounts, post_sales, management): per project, share of VERIFIED money already split by component = Σ(verified receipts WITH allocations) ÷ Σ(all verified). Returns per-project {verified, bifurcated, unbifurcated, pending_receipts, pct} sorted least-reconciled first, plus portfolio totals.
+- **New component** `components/BifurcationProgress.jsx`: collapsible panel (testid `bifurcation-progress`) with a colour-coded progress bar per project (`bif-bar-<pid>`), showing bifurcated/verified, %, and "₹X across N receipt(s) still to bifurcate". Shown on Sales → Plots for admin/accounts/post_sales, above the Needs-Bifurcation panel. Renders nothing when no verified money exists.
+- Verified: backend test /app/backend/tests/test_bifurcation_progress.py (62.5% split math, pending count, roles) passes; DB left clean. Frontend compiles; panel reuses the tested Needs-Bifurcation pattern.
+- ACTION FOR USER: Redeploy to push live.
