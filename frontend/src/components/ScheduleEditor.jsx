@@ -8,7 +8,7 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 // Full payment-plan editor: edit/add/remove any instalment. Editing an instalment
 // that already has receipts triggers an Accounts re-approval (a Schedule Revision).
-export function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, onSaved }) {
+export function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, stream = "land", onClose, onSaved }) {
   const [items, setItems] = useState(() => rows.map(r => ({
     payment_id: r.payment_id,
     name: r.notes || "",
@@ -50,6 +50,7 @@ export function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, 
     setBusy(true);
     try {
       const r = await api.put(`/units/${unitId}/schedule`, {
+        stream,
         installments: items.map(it => ({
           payment_id: it.payment_id || null,
           due_date: it.on_possession ? "On Offer of Possession" : (it.due_date || new Date().toISOString().slice(0, 10)),
@@ -64,8 +65,8 @@ export function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, 
   };
 
   return (
-    <Modal size="xl" title={`Edit payment plan · Plot ${plotNumber}`}
-      subtitle="Restructure the whole instalment plan — add, remove or edit any row. Instalments must add up to the Grand Total, a paid instalment can't drop below what's already verified, and one with recorded receipts can't be removed. Editing a paid instalment notifies Accounts to recheck & approve."
+    <Modal size="xl" title={`Edit ${stream === "vault" ? "Vault " : ""}payment plan · Plot ${plotNumber}`}
+      subtitle={`Restructure the whole ${stream === "vault" ? "Vault " : ""}instalment plan — add, remove or edit any row. Instalments must add up to the ${stream === "vault" ? "Vault total" : "Grand Total"}, a paid instalment can't drop below what's already verified, and one with recorded receipts can't be removed. Editing a paid instalment notifies Accounts to recheck & approve.`}
       onClose={onClose}
       footer={<>
         <button onClick={onClose} className="btn-secondary">Cancel</button>
@@ -116,11 +117,11 @@ export function ScheduleEditor({ unitId, plotNumber, rows, grandTotal, onClose, 
         ))}
         <button onClick={addRow} className="btn-secondary text-xs" data-testid="sched-add"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
         <div className="flex items-center justify-between border-t border-line pt-3 mt-2 text-sm">
-          <span className="text-ink2">Schedule total <span className="text-ink2">· must equal Grand Total {inr(grandTotal)}</span></span>
+          <span className="text-ink2">Schedule total <span className="text-ink2">· must equal {stream === "vault" ? "Vault total" : "Grand Total"} {inr(grandTotal)}</span></span>
           <div className="text-right">
             <span className={`font-mono-num font-bold ${matches ? "text-ok" : "text-bad"}`} data-testid="sched-total">{inr(total)}</span>
             <div className={`text-[11px] font-mono-num ${matches ? "text-ok" : "text-bad"}`} data-testid="sched-gap">
-              {matches ? "Matches Grand Total ✓" : `${gap > 0 ? "Over" : "Under"} Grand Total by ${inr(Math.abs(gap))} — adjust to save`}
+              {matches ? `Matches ${stream === "vault" ? "Vault total" : "Grand Total"} ✓` : `${gap > 0 ? "Over" : "Under"} by ${inr(Math.abs(gap))} — adjust to save`}
             </div>
           </div>
         </div>

@@ -190,7 +190,7 @@ function ProjectInventory({ project, user }) {
       {wizard && <UploadWizard project={project} onClose={() => setWizard(false)} onDone={() => { setWizard(false); load(); }} />}
       {plotDlg && <PlotDialog project={{ ...project, columns: cols }} mode={plotDlg.mode} unit={plotDlg.unit}
                     onClose={() => setPlotDlg(null)} onSaved={() => { setPlotDlg(null); load(); }} />}
-      {sellFor && <SellDialog unit={sellFor} columns={cols} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
+      {sellFor && <SellDialog unit={sellFor} columns={cols} vaultConfig={project.vault_config} onClose={() => setSellFor(null)} onSaved={() => { setSellFor(null); load(); }} />}
       {cancelFor && <CancelDialog unit={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
       {reportFor && <ReportViewer unitId={reportFor.unit_id} plotNumber={reportFor.plot_number} onClose={() => setReportFor(null)} />}
       {recomputePrev && (
@@ -454,13 +454,48 @@ function PlotDialog({ project, mode, unit, onClose, onSaved }) {
   );
 }
 
-function SellDialog({ unit, columns, onClose, onSaved }) {
+function SellDialog({ unit, columns, vaultConfig, onClose, onSaved }) {
   const [form, setForm] = useState({
     buyer_name: "", sale_date: new Date().toISOString().slice(0, 10),
     final_price: unit.total || 0, booking_amount: 0,
   });
   const [schedule, setSchedule] = useState([{ name: "", due_date: "", on_possession: false, amount: 0 }]);
   const [busy, setBusy] = useState(false);
+  const vaultEnabled = !!(vaultConfig && vaultConfig.enabled && (vaultConfig.variants || []).length);
+  const [vaultOn, setVaultOn] = useState(false);
+  const [vaultVariant, setVaultVariant] = useState("");
+  const [vaultSchedule, setVaultSchedule] = useState([]);
+
+  const variant = (vaultConfig?.variants || []).find(v => v.variant_id === vaultVariant) || null;
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+  const buildVaultSchedule = (v) => {
+    const tpl = vaultConfig?.schedule_template || [];
+    const total = Number(v?.total || 0);
+    if (!tpl.length || !total) return [];
+    let acc = 0;
+    return tpl.map((t, i) => {
+      let amt = round2((Number(t.pct || 0) / 100) * total);
+      if (i === tpl.length - 1) amt = round2(total - acc);   // last row absorbs rounding
+      acc = round2(acc + amt);
+      return { name: t.label || `Instalment ${i + 1}`, on_possession: !!t.on_possession, due_date: "", amount: amt };
+    });
+  };
+  const pickVariant = (id) => {
+    setVaultVariant(id);
+    const v = (vaultConfig?.variants || []).find(x => x.variant_id === id);
+    setVaultSchedule(buildVaultSchedule(v));
+  };
+  const toggleVault = (on) => {
+    setVaultOn(on);
+    if (on && !vaultVariant && vaultConfig?.variants?.length) pickVariant(vaultConfig.variants[0].variant_id);
+  };
+  const updVault = (i, patch) => setVaultSchedule(vaultSchedule.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const addVaultRow = () => setVaultSchedule([...vaultSchedule, { name: "", due_date: "", on_possession: false, amount: 0 }]);
+  const rmVaultRow = (i) => setVaultSchedule(vaultSchedule.filter((_, idx) => idx !== i));
+  const vaultSchedTotal = round2(vaultSchedule.reduce((s, r) => s + Number(r.amount || 0), 0));
+  const vaultGap = round2(vaultSchedTotal - Number(variant?.total || 0));
+  const vaultMatches = Math.abs(vaultGap) < 1;
 
   const comps = (columns || []).filter(c => c.tag !== "plot_id" && c.tag !== "ignore");
   const compVal = (c) => {
@@ -483,16 +518,29 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
     // Only rows with an amount count; blank rows are ignored. Due date is optional (defaults to the sale date).
     const filled = schedule.filter(r => Number(r.amount) > 0);
     if (filled.length === 0) return toast.error("Add at least one payment row with an amount");
+    if (vaultOn) {
+      if (!variant) return toast.error("Pick a Vault size");
+      if (!vaultMatches) return toast.error(`The Vault instalments (${inr(vaultSchedTotal)}) must add up to the Vault total (${inr(variant.total)})`);
+    }
     setBusy(true);
     try {
-      await api.post(`/units/${unit.unit_id}/sell`, {
+      const body = {
         buyer_name: form.buyer_name, sale_date: form.sale_date,
         final_price: Number(form.final_price), booking_amount: Number(form.booking_amount),
         schedule: filled.map(r => ({
           due_date: r.on_possession ? "On Offer of Possession" : (r.due_date || form.sale_date),
           amount: Number(r.amount), notes: r.name || "",
         })),
-      });
+      };
+      if (vaultOn && variant) {
+        body.vault = { variant_id: variant.variant_id, label: variant.label,
+                       construction: variant.construction, gst: variant.gst, total: variant.total };
+        body.vault_schedule = vaultSchedule.filter(r => Number(r.amount) > 0).map(r => ({
+          due_date: r.on_possession ? "On Offer of Possession" : (r.due_date || form.sale_date),
+          amount: Number(r.amount), notes: r.name || "",
+        }));
+      }
+      await api.post(`/units/${unit.unit_id}/sell`, body);
       toast.success("Sale recorded — accounts & admin notified");
       onSaved();
     } catch (e) { toast.error(apiError(e)); }
@@ -580,6 +628,65 @@ function SellDialog({ unit, columns, onClose, onSaved }) {
           </table></div>
         </div>
       </div>
+
+      {/* The Vault — optional add-on (CVF only) */}
+      {vaultEnabled && (
+        <div className="mt-6 border-t border-agborder pt-5" data-testid="vault-section">
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input type="checkbox" checked={vaultOn} onChange={(e) => toggleVault(e.target.checked)} data-testid="vault-toggle" />
+            <span className="overline text-ink">Add The Vault <span className="normal-case tracking-normal text-ink2 font-normal text-xs">— optional construction add-on with its own schedule</span></span>
+          </label>
+          {vaultOn && (
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Vault size</label>
+                  <select value={vaultVariant} onChange={(e) => pickVariant(e.target.value)} className="input" data-testid="vault-variant">
+                    {(vaultConfig.variants || []).map(v => <option key={v.variant_id} value={v.variant_id}>{v.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Vault total <span className="normal-case tracking-normal text-ink2 font-normal">(construction + GST)</span></label>
+                  <div className="input bg-surfacealt/60 font-mono-num font-bold" data-testid="vault-total">{inr(variant?.total || 0)}</div>
+                  {variant && <div className="text-[11px] text-ink2 mt-1 font-mono-num">Construction {inr(variant.construction)} + GST {inr(variant.gst)}</div>}
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <div className="overline text-ink">The Vault — payment schedule</div>
+                <button onClick={addVaultRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="vault-add-row"><Plus className="w-3.5 h-3.5" /> Add instalment</button>
+              </div>
+              <div className="border border-agborder rounded-md overflow-hidden">
+                <div className="overflow-x-auto"><table className="w-full">
+                  <thead><tr className="bg-surfacealt/60 border-b border-agborder">
+                    <th className="th py-2">Instalment name</th><th className="th py-2">Due date</th><th className="th py-2 text-right">Amount</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    {vaultSchedule.map((r, i) => (
+                      <tr key={i} className="border-b border-agborder last:border-0">
+                        <td className="px-3 py-2"><input value={r.name} onChange={(e) => updVault(i, { name: e.target.value })} className="input" placeholder="e.g. Instalment 1" data-testid={`vault-name-${i}`} /></td>
+                        <td className="px-3 py-2">
+                          {r.on_possession ? <div className="text-xs font-semibold text-brand py-2">On Offer of Possession</div>
+                            : <input type="date" value={r.due_date} onChange={(e) => updVault(i, { due_date: e.target.value })} className="input font-mono-num" data-testid={`vault-date-${i}`} />}
+                          <label className="flex items-center gap-1.5 text-[11px] text-ink2 mt-1 cursor-pointer">
+                            <input type="checkbox" checked={r.on_possession} onChange={(e) => updVault(i, { on_possession: e.target.checked })} data-testid={`vault-poss-${i}`} /> On Offer of Possession
+                          </label>
+                        </td>
+                        <td className="px-3 py-2"><input type="number" value={r.amount} onChange={(e) => updVault(i, { amount: e.target.value })} className="input text-right font-mono-num" data-testid={`vault-amt-${i}`} /></td>
+                        <td className="px-3 py-2">{vaultSchedule.length > 1 && <button onClick={() => rmVaultRow(i)} className="text-bad"><X className="w-4 h-4" /></button>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr className="bg-surfacealt/40">
+                    <td colSpan={2} className="px-3 py-2.5 text-sm font-semibold text-ink">Vault schedule total</td>
+                    <td className={`px-3 py-2.5 text-right font-mono-num font-bold ${vaultMatches ? "text-ok" : "text-bad"}`} data-testid="vault-sched-total">{inr(vaultSchedTotal)}</td><td></td>
+                  </tr></tfoot>
+                </table></div>
+              </div>
+              {!vaultMatches && <div className="text-[11px] text-bad" data-testid="vault-gap">Vault instalments are {vaultGap > 0 ? "over" : "under"} the Vault total by {inr(Math.abs(vaultGap))} — adjust to save.</div>}
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

@@ -456,3 +456,22 @@ Diagnosed a production data gap (plots 1/31/34 Vacation Village): each plot carr
 - **New component** `components/BifurcationProgress.jsx`: collapsible panel (testid `bifurcation-progress`) with a colour-coded progress bar per project (`bif-bar-<pid>`), showing bifurcated/verified, %, and "₹X across N receipt(s) still to bifurcate". Shown on Sales → Plots for admin/accounts/post_sales, above the Needs-Bifurcation panel. Renders nothing when no verified money exists.
 - Verified: backend test /app/backend/tests/test_bifurcation_progress.py (62.5% split math, pending count, roles) passes; DB left clean. Frontend compiles; panel reuses the tested Needs-Bifurcation pattern.
 - ACTION FOR USER: Redeploy to push live.
+
+## PHASE 30 · CVF inventory fix + The Vault add-on + stream-aware dashboard (2026-06)
+CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched throughout.
+### Phase 1 — CVF data + tagging (applied to preview DB)
+- Retagged the 4 PLC columns (East Facing / Corner / CV Facing / 2-or-more PLC) from `ignore`→`charge`; PLC values were dropped at import so also **backfilled** them from the inventory sheet + refreshed each plot's `net_payable`/`total`. Now Grand Total (Σ charge cols) == inventory NET PAYABLE for all 47 (verified 47/47).
+- Added the **54 missing farms** (1–31, 33–37, 39, 49–52, 79–84, 90–94, 99, 100) as AVAILABLE plots with zero values → CVF now has **101 plots**.
+- Scripts: /app/backend/tests/phase1_cvf_inventory.py (run with `apply`).
+### Phase 2 — The Vault (optional add-on at booking)
+- Project-scoped `project.vault_config` on CVF (4 variants: 7000/8000/8000-2BR/10000 with construction+GST totals, + a 10×10% schedule template). Seed: tests/seed_cvf_vault_config.py. VV has none.
+- `Payment.stream` field ("land" default / "vault"). Unit gets `vault:{enabled,variant_id,label,construction,gst,total}` when booked with Vault.
+- `sell_unit` accepts optional `vault` + `vault_schedule`; validates land schedule == Grand Total AND vault schedule == Vault total; creates separate stream="vault" payments.
+- `edit_schedule` is stream-aware (`stream` param; validates per-stream total; only touches that stream's payments).
+- `mismatched_plots` evaluates BOTH streams per plot; items carry `stream`/`stream_label`.
+- Frontend: Units SellDialog "Add The Vault" toggle + variant + prefilled Vault schedule (testids vault-toggle/variant/total/sched-total/gap). Sales PlotDrilldown shows Land + Vault sections + two edit buttons (edit-schedule-<uid>, edit-vault-schedule-<uid>). ScheduleEditor takes `stream`. MismatchedPlots shows a Stream column and per-stream editing.
+### Phase 3 — Option B stream-aware dashboard
+- `_projects_overview` returns per-project `streams{land,vault{...,attach_count}}` + `has_vault`, and consolidated land/vault booked/received + `vault_attach`.
+- Admin dashboard: "Revenue by stream" panel (Land vs Vault columns, vault-attach badge) + per-project Land/Vault split (dash-streams-<pid>). Projects without Vault (VV) render no Vault UI. Management consolidated includes Vault.
+- Verified: tests/test_vault_flow.py (ALL PASS) + testing_agent iteration_28 (100% FE+BE, 0 bugs). DB pristine: CVF 101 available + vault_config, VV 256 untouched.
+- ACTION FOR USER: Redeploy to push live. When booking a CVF plot you'll now see 'Add The Vault'; the dashboard splits Land vs Vault revenue.

@@ -272,6 +272,8 @@ class SellUnitRequest(BaseModel):
     final_price: float
     booking_amount: float
     schedule: List[ScheduleRow]
+    vault: Optional[dict] = None          # {variant_id,label,construction,gst,total}
+    vault_schedule: List[ScheduleRow] = []
 
 
 class ScheduleEditRow(BaseModel):
@@ -283,6 +285,7 @@ class ScheduleEditRow(BaseModel):
 
 class ScheduleEdit(BaseModel):
     installments: List[ScheduleEditRow]
+    stream: Literal["land", "vault"] = "land"
 
 
 class AutoFitRequest(BaseModel):
@@ -319,6 +322,7 @@ class Payment(BaseModel):
     due_date: str
     amount: float
     notes: str = ""                  # instalment name
+    stream: Literal["land", "vault"] = "land"   # revenue stream: base plot vs The Vault add-on
     paid_amount: float = 0
     receipts: list = []              # [{amount,date,notes,by,by_name,at}]
     status: Literal["pending", "partial", "received"] = "pending"
@@ -1111,24 +1115,51 @@ async def sell_unit(unit_id: str, payload: SellUnitRequest,
     _st = round(sum(_num(row.amount) for row in payload.schedule), 2)
     if _gt > 0 and abs(_st - _gt) > 1:
         raise HTTPException(400, f"Instalments (\u20B9{_st:,.2f}) must add up to the Grand Total (\u20B9{_gt:,.2f})")
+    # Optional Vault add-on: validate its schedule against the Vault total
+    vault = None
+    if payload.vault:
+        v_total = round(_num(payload.vault.get("total")), 2)
+        if v_total <= 0:
+            raise HTTPException(400, "The Vault total must be greater than zero")
+        v_st = round(sum(_num(r.amount) for r in payload.vault_schedule), 2)
+        if not payload.vault_schedule:
+            raise HTTPException(400, "The Vault schedule cannot be empty")
+        if abs(v_st - v_total) > 1:
+            raise HTTPException(400, f"The Vault instalments (\u20B9{v_st:,.2f}) must add up to the Vault total (\u20B9{v_total:,.2f})")
+        vault = {
+            "enabled": True,
+            "variant_id": payload.vault.get("variant_id", ""),
+            "label": payload.vault.get("label", ""),
+            "construction": round(_num(payload.vault.get("construction")), 2),
+            "gst": round(_num(payload.vault.get("gst")), 2),
+            "total": v_total,
+        }
     # Update unit
-    await db.units.update_one(
-        {"unit_id": unit_id},
-        {"$set": {"status": "sold",
-                  "buyer_name": payload.buyer_name,
-                  "buyer_contact": payload.buyer_contact,
-                  "sale_date": payload.sale_date,
-                  "final_price": payload.final_price,
-                  "booking_amount": payload.booking_amount,
-                  "sold_by": user.user_id,
-                  "sold_at": now()}})
-    # Create payment records
+    _set = {"status": "sold",
+            "buyer_name": payload.buyer_name,
+            "buyer_contact": payload.buyer_contact,
+            "sale_date": payload.sale_date,
+            "final_price": payload.final_price,
+            "booking_amount": payload.booking_amount,
+            "sold_by": user.user_id,
+            "sold_at": now()}
+    if vault:
+        _set["vault"] = vault
+    await db.units.update_one({"unit_id": unit_id}, {"$set": _set})
+    # Create payment records (land stream)
     docs = []
     for seq, row in enumerate(payload.schedule, start=1):
         docs.append(Payment(
-            unit_id=unit_id, project_id=unit["project_id"],
+            unit_id=unit_id, project_id=unit["project_id"], stream="land",
             seq=seq, due_date=row.due_date, amount=row.amount,
             notes=row.notes).model_dump())
+    # Vault stream payments
+    if vault:
+        for seq, row in enumerate(payload.vault_schedule, start=1):
+            docs.append(Payment(
+                unit_id=unit_id, project_id=unit["project_id"], stream="vault",
+                seq=seq, due_date=row.due_date, amount=row.amount,
+                notes=row.notes).model_dump())
     if docs:
         await db.payments.insert_many(docs)
         for d in docs:
@@ -1253,12 +1284,20 @@ async def edit_schedule(unit_id: str, payload: ScheduleEdit,
 
     _proj = await db.projects.find_one({"project_id": unit["project_id"]}, {"_id": 0, "columns": 1})
     _ck = [c["key"] for c in (_proj.get("columns") or []) if c.get("tag") == "charge"]
-    grand_total = round(sum(_num(unit.get("data", {}).get(k)) for k in _ck), 2)
+    stream = payload.stream
+    if stream == "vault":
+        if not (unit.get("vault") or {}).get("enabled"):
+            raise HTTPException(400, "This plot has no Vault add-on")
+        grand_total = round(_num(unit["vault"].get("total")), 2)
+    else:
+        grand_total = round(sum(_num(unit.get("data", {}).get(k)) for k in _ck), 2)
     sched_total = round(sum(_num(r.amount) for r in payload.installments), 2)
     if grand_total > 0 and abs(sched_total - grand_total) > 1:
-        raise HTTPException(400, f"Instalments (\u20B9{sched_total:,.2f}) must add up to the Grand Total (\u20B9{grand_total:,.2f})")
+        _lbl = "Vault total" if stream == "vault" else "Grand Total"
+        raise HTTPException(400, f"Instalments (\u20B9{sched_total:,.2f}) must add up to the {_lbl} (\u20B9{grand_total:,.2f})")
 
     existing = await db.payments.find({"unit_id": unit_id}, {"_id": 0}).to_list(500)
+    existing = [p for p in existing if (p.get("stream") or "land") == stream]
     by_id = {p["payment_id"]: p for p in existing}
     incoming_ids = {r.payment_id for r in payload.installments if r.payment_id}
 
@@ -1296,7 +1335,7 @@ async def edit_schedule(unit_id: str, payload: ScheduleEdit,
                 {"$set": {"seq": seq, "due_date": r.due_date, "amount": amt,
                           "notes": r.notes or "", **derived}})
         else:
-            doc = Payment(unit_id=unit_id, project_id=unit["project_id"], seq=seq,
+            doc = Payment(unit_id=unit_id, project_id=unit["project_id"], seq=seq, stream=stream,
                           due_date=r.due_date, amount=amt, notes=r.notes or "").model_dump()
             await db.payments.insert_one(doc)
 
@@ -1419,27 +1458,34 @@ async def mismatched_plots(project_id: Optional[str] = None,
     units = await db.units.find(q, {"_id": 0}).to_list(8000)
     items, grand = [], 0.0
     for u in units:
-        gt = await _plot_grand_total(u)
-        if gt <= 0:
-            continue
-        pays = await db.payments.find({"unit_id": u["unit_id"]}, {"_id": 0}).to_list(500)
-        pays.sort(key=lambda x: x.get("seq", 0))
-        sched_total = round(sum(_num(p.get("amount")) for p in pays), 2)
-        diff = round(gt - sched_total, 2)
-        if abs(diff) <= 1:
-            continue
-        grand += abs(diff)
-        items.append({
-            "unit_id": u["unit_id"], "plot_number": u.get("plot_number", "?"),
-            "buyer_name": u.get("buyer_name") or "", "project_id": u.get("project_id"),
-            "project": pnames.get(u.get("project_id"), "\u2014"),
-            "grand_total": gt, "schedule_total": sched_total, "difference": diff,
-            "installments": [{
-                "payment_id": p["payment_id"], "notes": p.get("notes") or "",
-                "due_date": p.get("due_date"), "amount": round(_num(p.get("amount")), 2),
-                "verified": _verified_of(p),
-            } for p in pays],
-        })
+        land_gt = await _plot_grand_total(u)
+        vault = u.get("vault") or {}
+        streams = [("land", land_gt, "Land")]
+        if vault.get("enabled"):
+            streams.append(("vault", round(_num(vault.get("total")), 2), "The Vault"))
+        allpays = await db.payments.find({"unit_id": u["unit_id"]}, {"_id": 0}).to_list(500)
+        for skey, gt, slabel in streams:
+            if gt <= 0:
+                continue
+            pays = [p for p in allpays if (p.get("stream") or "land") == skey]
+            pays.sort(key=lambda x: x.get("seq", 0))
+            sched_total = round(sum(_num(p.get("amount")) for p in pays), 2)
+            diff = round(gt - sched_total, 2)
+            if abs(diff) <= 1:
+                continue
+            grand += abs(diff)
+            items.append({
+                "unit_id": u["unit_id"], "plot_number": u.get("plot_number", "?"),
+                "buyer_name": u.get("buyer_name") or "", "project_id": u.get("project_id"),
+                "project": pnames.get(u.get("project_id"), "\u2014"),
+                "stream": skey, "stream_label": slabel,
+                "grand_total": gt, "schedule_total": sched_total, "difference": diff,
+                "installments": [{
+                    "payment_id": p["payment_id"], "notes": p.get("notes") or "",
+                    "due_date": p.get("due_date"), "amount": round(_num(p.get("amount")), 2),
+                    "verified": _verified_of(p),
+                } for p in pays],
+            })
     items.sort(key=lambda x: -abs(x["difference"]))
     return {"total": round(grand, 2), "count": len(items), "items": items}
 
@@ -2543,12 +2589,25 @@ async def _projects_overview(only_project: Optional[str] = None):
         pid = p["project_id"]
         units = await db.units.find(
             {"project_id": pid},
-            {"_id": 0, "status": 1, "total": 1, "data": 1, "final_price": 1}).to_list(5000)
+            {"_id": 0, "status": 1, "total": 1, "data": 1, "final_price": 1, "vault": 1}).to_list(5000)
         sold = [u for u in units if u.get("status") == "sold"]
         _charge_keys = [c["key"] for c in (p.get("columns") or []) if c.get("tag") == "charge"]
         # Sold value = live sum of component charges over sold plots — identical to the
         # component card's Grand Total (Billed), so the two can never diverge.
         booked = round(sum(sum(_num(u.get("data", {}).get(k)) for k in _charge_keys) for u in sold), 2)
+        # Vault stream: booked value + attach rate (sold plots that opted into The Vault)
+        sold_with_vault = [u for u in sold if (u.get("vault") or {}).get("enabled")]
+        vault_booked = round(sum(_num((u.get("vault") or {}).get("total")) for u in sold_with_vault), 2)
+        has_vault = bool((p.get("vault_config") or {}).get("enabled")) or len(sold_with_vault) > 0
+        # received split by stream (verified receipts drive paid_amount)
+        land_received = vault_received = 0.0
+        async for _p in db.payments.find({"project_id": pid}, {"_id": 0, "paid_amount": 1, "stream": 1}):
+            if (_p.get("stream") or "land") == "vault":
+                vault_received += _num(_p.get("paid_amount"))
+            else:
+                land_received += _num(_p.get("paid_amount"))
+        land_received = round(land_received, 2)
+        vault_received = round(vault_received, 2)
         received = round(await _sum_field(db.payments, {"project_id": pid}, "paid_amount"), 2)
         retained = round(await _sum_field(db.cancellations, {"project_id": pid}, "balance_retained"), 2)
         received = round(received + retained, 2)
@@ -2589,10 +2648,23 @@ async def _projects_overview(only_project: Optional[str] = None):
             "booked_value": booked, "received_total": received, "pending_total": pending,
             "awaiting_verification": awaiting,
             "pivots": pivots,
+            "has_vault": has_vault,
+            "streams": {
+                "land": {"billed": booked, "received": land_received,
+                         "pending": round(max(0.0, booked - land_received), 2)},
+                "vault": {"billed": vault_booked, "received": vault_received,
+                          "pending": round(max(0.0, vault_booked - vault_received), 2),
+                          "attach_count": len(sold_with_vault)},
+            },
         })
         con["total_units"] += len(units); con["available"] += len(units) - len(sold)
         con["sold"] += len(sold); con["booked_value"] += booked
         con["received_total"] += received; con["pending_total"] += pending
+        con["vault_booked"] = round(con.get("vault_booked", 0.0) + vault_booked, 2)
+        con["vault_received"] = round(con.get("vault_received", 0.0) + vault_received, 2)
+        con["land_booked"] = round(con.get("land_booked", 0.0) + booked, 2)
+        con["land_received"] = round(con.get("land_received", 0.0) + land_received, 2)
+        con["vault_attach"] = con.get("vault_attach", 0) + len(sold_with_vault)
     for k in ("booked_value", "received_total", "pending_total"):
         con[k] = round(con[k], 2)
     return out, con

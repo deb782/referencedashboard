@@ -18,8 +18,9 @@ export function MismatchedPlots({ projectId, refresh, onOpen, onFixed }) {
   const openEditor = async (it) => {
     try {
       const r = await api.get("/payments", { params: { unit_id: it.unit_id } });
-      r.data.sort((a, b) => a.seq - b.seq);
-      setEditor({ unit_id: it.unit_id, plot_number: it.plot_number, grandTotal: it.grand_total, rows: r.data });
+      const stream = it.stream || "land";
+      const rows = r.data.filter(p => (p.stream || "land") === stream).sort((a, b) => a.seq - b.seq);
+      setEditor({ unit_id: it.unit_id, plot_number: it.plot_number, grandTotal: it.grand_total, stream, rows });
     } catch { /* ignore */ }
   };
 
@@ -39,14 +40,15 @@ export function MismatchedPlots({ projectId, refresh, onOpen, onFixed }) {
         <div className="border-t border-bad/20 overflow-x-auto">
           <table className="w-full">
             <thead><tr className="bg-surfacealt/50 border-b border-line">
-              <th className="th">Plot</th><th className="th">Buyer</th><th className="th">Project</th>
-              <th className="th text-right">Grand Total</th><th className="th text-right">Schedule</th>
+              <th className="th">Plot</th><th className="th">Stream</th><th className="th">Buyer</th><th className="th">Project</th>
+              <th className="th text-right">Total</th><th className="th text-right">Schedule</th>
               <th className="th text-right">Difference</th><th className="th"></th>
             </tr></thead>
             <tbody>
               {data.items.map((it) => (
-                <tr key={it.unit_id} className="row" data-testid={`mismatch-${it.plot_number}`}>
+                <tr key={it.unit_id + (it.stream || "land")} className="row" data-testid={`mismatch-${it.plot_number}-${it.stream || "land"}`}>
                   <td className="td font-mono-num font-bold">{it.plot_number}</td>
+                  <td className="td"><span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${(it.stream || "land") === "vault" ? "bg-brand/10 text-brand" : "bg-surfacealt text-ink2"}`}>{it.stream_label || "Land"}</span></td>
                   <td className="td text-ink2">{it.buyer_name || "—"}</td>
                   <td className="td text-ink2">{it.project}</td>
                   <td className="td text-right font-mono-num">{inr(it.grand_total)}</td>
@@ -55,7 +57,7 @@ export function MismatchedPlots({ projectId, refresh, onOpen, onFixed }) {
                     {it.difference > 0 ? "+" : "−"}{inr(Math.abs(it.difference))}
                   </td>
                   <td className="td text-right whitespace-nowrap">
-                    <button onClick={() => openEditor(it)} className="text-brand font-semibold hover:underline text-xs mr-3" data-testid={`edit-plan-${it.plot_number}`}>Edit payment plan</button>
+                    <button onClick={() => openEditor(it)} className="text-brand font-semibold hover:underline text-xs mr-3" data-testid={`edit-plan-${it.plot_number}-${it.stream || "land"}`}>Edit payment plan</button>
                     {onOpen && (
                       <button onClick={() => onOpen({ unit_id: it.unit_id, plot_number: it.plot_number, buyer_name: it.buyer_name, project_id: it.project_id })}
                         className="text-ink2 font-semibold hover:underline text-xs" data-testid={`mismatch-open-${it.plot_number}`}>Open plot</button>
@@ -69,7 +71,7 @@ export function MismatchedPlots({ projectId, refresh, onOpen, onFixed }) {
       )}
       {editor && (
         <ScheduleEditor unitId={editor.unit_id} plotNumber={editor.plot_number}
-          rows={editor.rows} grandTotal={editor.grandTotal}
+          rows={editor.rows} grandTotal={editor.grandTotal} stream={editor.stream}
           onClose={() => setEditor(null)} onSaved={afterSave} />
       )}
     </div>

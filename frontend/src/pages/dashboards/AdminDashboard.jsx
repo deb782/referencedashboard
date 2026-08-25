@@ -66,6 +66,9 @@ export default function AdminDashboard({ stats, user }) {
         </div>
       </section>
 
+      {/* Revenue by stream — Land vs The Vault (Option B) */}
+      <StreamPanel con={s.consolidated || {}} hasVault={projects.some(p => p.has_vault)} />
+
       {/* Collections outlook by period */}
       <CollectionsPeriod />
 
@@ -129,6 +132,44 @@ export default function AdminDashboard({ stats, user }) {
   );
 }
 
+function StreamPanel({ con, hasVault }) {
+  if (!hasVault) return null;
+  const land = { billed: con.land_booked || 0, received: con.land_received || 0 };
+  const vault = { billed: con.vault_booked || 0, received: con.vault_received || 0 };
+  const rate = (s) => s.billed > 0 ? Math.round((s.received / s.billed) * 100) : 0;
+  const Col = ({ label, s, accent, testid }) => (
+    <div className="p-6 lg:p-8" data-testid={testid}>
+      <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full" style={{ background: accent }} />
+        <span className="overline text-ink">{label}</span>
+      </div>
+      <div className="kpi-value text-2xl lg:text-3xl mt-3 break-words" title={inr(s.received)}>{inr(s.received)}</div>
+      <div className="text-[10px] text-ink2 mt-1 italic">received of {inr(s.billed)} billed</div>
+      <div className="mt-4 h-[6px] rounded-full bg-surfacealt overflow-hidden">
+        <div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${rate(s)}%`, background: accent }} />
+      </div>
+      <div className="mt-3 flex items-center justify-between text-xs font-mono-num">
+        <span className="text-ink2">{rate(s)}% collected</span>
+        <span className="text-clay">Outstanding {inr(Math.max(0, s.billed - s.received))}</span>
+      </div>
+    </div>
+  );
+  return (
+    <section className="panel overflow-hidden" data-testid="revenue-by-stream">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-line">
+        <div className="overline text-ink">Revenue by stream</div>
+        <span className="text-[11px] font-semibold text-ink px-2 py-0.5 rounded-md" style={{ background: "#ccff00" }} data-testid="vault-attach">
+          {con.vault_attach || 0} plot(s) with The Vault
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-line">
+        <Col label="Land · plots" s={land} accent="#4A4A4A" testid="stream-land" />
+        <Col label="The Vault · construction" s={vault} accent="#9BBAD4" testid="stream-vault" />
+      </div>
+    </section>
+  );
+}
+
 function Meta({ label, value, accent }) {
   return (
     <div className="text-right">
@@ -184,6 +225,12 @@ function ProjectPanel({ p, idx }) {
           <MiniStat label="Outstanding" value={p.pending_total} tone="text-clay" />
           <MiniStat label="Awaiting" value={p.awaiting_verification || 0} lime />
         </div>
+        {p.has_vault && p.streams && (
+          <div className="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-line" data-testid={`dash-streams-${p.project_id}`}>
+            <StreamMini label="Land" accent="#4A4A4A" s={p.streams.land} />
+            <StreamMini label="The Vault" accent="#9BBAD4" s={p.streams.vault} extra={`${p.streams.vault.attach_count || 0} plot(s)`} />
+          </div>
+        )}
       </div>
       {pivots.length === 0 ? (
         <EmptyState icon={Layers} title="No pivot yet" hint="Upload this project's inventory to see component totals." />
@@ -216,6 +263,24 @@ function ProjectPanel({ p, idx }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function StreamMini({ label, accent, s, extra }) {
+  const rate = s.billed > 0 ? Math.round((s.received / s.billed) * 100) : 0;
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        <span className="w-2 h-2 rounded-full" style={{ background: accent }} />
+        <span className="text-[10px] uppercase tracking-[0.12em] text-ink2 font-semibold">{label}</span>
+        {extra && <span className="text-[9px] text-ink2">· {extra}</span>}
+      </div>
+      <div className="font-mono-num font-semibold text-sm mt-1 text-ink">{inr(s.received)}</div>
+      <div className="text-[9px] text-ink2">of {inr(s.billed)} · {rate}%</div>
+      <div className="mt-1.5 h-[4px] rounded-full bg-surfacealt overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${rate}%`, background: accent }} />
+      </div>
     </div>
   );
 }

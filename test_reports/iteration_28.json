@@ -1,0 +1,28 @@
+{
+  "summary": "Full frontend E2E of The Vault feature. Verified: (a) Units page — CVF shows 101 plots, VV shows 256 plots. (b) VV Book dialog has NO vault-section; CVF Book dialog HAS vault-section. (c) Toggling vault-toggle reveals vault-variant, vault-total, and prefilled vault schedule (10x10%) with vault-sched-total matching vault-total (no vault-gap). (d) Breaking one Vault instalment surfaces vault-gap and blocks s-submit (toast shown, modal stays open). (e) Re-picking the variant regenerates a matching schedule; Confirm sale (s-submit) then books successfully — DB now has 1 land + 10 vault payments and unit.vault.enabled=true. (f) Sales drilldown for the plot shows both 'Land · plot payment schedule' and 'The Vault · construction schedule' sections and BOTH edit buttons (edit-schedule-<uid>, edit-vault-schedule-<uid>). (g) After breaking a vault instalment amount in DB, the Sales page mismatched-plots table shows a row with data-testid `mismatch-101-vault` and stream label 'THE VAULT'; edit-plan-101-vault opens the ScheduleEditor titled 'Edit Vault payment plan · Plot 101' (schedule-save disabled while gap>0). (h) Admin dashboard shows revenue-by-stream with stream-land + stream-vault columns and vault-attach '1 plot(s) with The Vault'; CVF project card has dash-streams-<CVF>, VV project card has NO dash-streams-<VV>. DB restored: CVF 101 available (vault_config intact), VV 256 untouched, zero payments/revisions on CVF.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_vault_flow.py",
+    "/app/backend/tests/vault_ui_pick.py",
+    "/app/backend/tests/vault_ui_break.py",
+    "/app/backend/tests/vault_ui_cleanup.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Units.jsx SellDialog: after saving with a vault-gap error, no visible error banner is rendered inline — only a toast. A tiny inline error near s-submit could complement the vault-gap message (minor UX).",
+    "Sales.jsx still ~950 lines; drilldown, cancellations, revisions, mismatch all live here — consider splitting for maintainability (pre-existing)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/vault_ui_pick.py (new helper)",
+    "/app/backend/tests/vault_ui_break.py (new helper)",
+    "/app/backend/tests/vault_ui_cleanup.py (new cleanup)"
+  ],
+  "success_rate": {"backend": "100% (test_vault_flow.py pre-verified)", "frontend": "100%"},
+  "test_credentials": "Admin 9513242807/Repro@123, Post Sales 9000000001/Pass@123, Accounts 9000000002/Pass@123",
+  "seed_data_creation": "No seed created — used first available CVF plot with GT>0 (plot 101, GT ₹87,46,501.77). Booked with vault_variant 7000 (₹91,45,000). Fully reverted after test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "DB is pristine: CVF has 101 available plots + vault_config intact, VV has 256 untouched plots, zero payments/schedule_logs/schedule_revisions on CVF. For fresh runs use vault_ui_pick.py to pick a CVF plot; break/cleanup helpers in same folder. All feature testids covered: vault-section, vault-toggle, vault-variant, vault-total, vault-sched-total, vault-gap, vault-name/date/amt-<i>, edit-vault-schedule-<uid>, edit-plan-<plot>-vault, mismatch-<plot>-vault, revenue-by-stream, stream-land, stream-vault, vault-attach, dash-streams-<project_id>.",
+  "rca of the issue": "N/A — no bugs found."
+}

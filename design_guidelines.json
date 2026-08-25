@@ -1,127 +1,108 @@
 {
-  "project_name": "Agrocorp Management Dashboard",
-  "theme": "hybrid_fullstack",
-  "visual_north_star": "Editorial minimalism + technical instrumentation + premium enterprise software. Stop designing generic SaaS dashboards. The UI must feel desirable, powerful, fast, and calm under complexity.",
+  "theme": "light",
   "typography": {
-    "display_font": "Cormorant Garamond",
-    "body_font": "Inter",
-    "hierarchy": {
-      "h1": "text-5xl sm:text-6xl tracking-tight leading-none font-medium font-serif",
-      "h2": "text-3xl sm:text-4xl tracking-tight leading-snug font-serif",
-      "h3": "text-xl sm:text-2xl font-semibold font-sans",
-      "h4": "text-xs sm:text-sm uppercase tracking-[0.2em] font-medium text-stone-500 font-sans",
-      "body": "text-sm sm:text-base leading-relaxed font-sans",
-      "numbers": "text-5xl to text-7xl for hero numbers, tabular-nums for datasets, confident scale."
+    "headings": {
+      "font_family": "Playfair Display",
+      "rationale": "Provides the requested 'editorial enterprise feel', avoiding generic tech sans-serifs.",
+      "weights": ["font-normal", "font-medium", "font-semibold"],
+      "usage": "Use tracking-tight for massive heroes. Never center-align by default."
     },
-    "rules": [
-      "Typography is architecture: controlled scale, big confident numbers, quiet labels.",
-      "Never default chart-library styling; use bespoke, minimal-noise charts.",
-      "Near-black type for high readability."
-    ]
+    "body": {
+      "font_family": "IBM Plex Sans",
+      "rationale": "Clean, highly readable, offsets the classical serif header with functional tech utility."
+    },
+    "data_numbers": {
+      "font_family": "IBM Plex Mono",
+      "rationale": "Sterile Mono Body for numerical accuracy in a data-heavy application. Crucial for financial tabulations."
+    },
+    "formatting": {
+      "currency": "MANDATORY: Full Indian format (₹xx,xx,xx,xxx). Absolutely NO compact Cr/L rounding.",
+      "hero_figure": "Show 'Rupees [Amount in Words] Only' directly beneath the massive hero metric."
+    }
   },
   "colors": {
-    "backgrounds": {
-      "primary": "#fcfbf9",
-      "secondary": "#f3f2ef",
-      "brand_plate": "#1a1c18",
-      "powder_blue": "#e8f0fe"
+    "background": {
+      "primary": "#F9F8F6",
+      "secondary": "#F3F2EF",
+      "rationale": "Warm off-white background as explicitly requested."
     },
     "text": {
-      "primary": "#111111",
-      "secondary": "#57534e",
-      "tertiary": "#a8a29e",
-      "inverse": "#ffffff"
+      "primary": "#1A1A18",
+      "secondary": "#5C5C5A"
+    },
+    "borders": {
+      "primary": "#E2E0D8",
+      "rationale": "Subtle cool-gray boundaries."
     },
     "accents": {
-      "neon_lime": "#ccff00",
-      "olive": "#4a533c",
-      "border": "#e5e5e5"
+      "primary": "#9BBAD4",
+      "primary_name": "Powder blue",
+      "highlight": "#CCFF00",
+      "highlight_name": "Lime/Chartreuse",
+      "highlight_usage": "Use EXTREMELY RARELY. E.g., for the 'Vault attach rate' badge or a single 'verified' pip."
     },
-    "rules": [
-      "Warm off-white surfaces with very subtle cool-grey boundaries.",
-      "Restrained neon-lime highlights used like a laser pointer, only where I should look.",
-      "Brand marks (white) MUST sit on dark/near-black brand plates or dark olive surfaces.",
-      "No gradients, no glassmorphism, no giant shadows."
-    ]
+    "revenue_streams": {
+      "land": "Neutral earthy grayscale (#4A4A4A) with warm background.",
+      "vault": "Use the main accent Powder Blue (#9BBAD4) to distinguish this parallel stream."
+    }
   },
-  "layouts": {
-    "philosophy": "Design according to the information, not a dashboard template. Break out of Sidebar->Header->KPIs.",
-    "patterns": [
-      "Command Palette: Global search/actions accessible via keyboard shortcuts (Cmd+K).",
-      "Bento/Asymmetric Grids: Intentional asymmetry with extremely clean alignment.",
-      "Split Views: Editorial presentation on one side, technical data canvas on the other.",
-      "Contextual Side Panels: Expand from source rather than blocking view entirely.",
-      "Spatial Maps: Data canvases for plot inventory rather than just tables."
-    ],
-    "spacing": "Generous whitespace (p-8, p-12) coupled with dense technical clusters. Padding must prevent text collision."
-  },
-  "signature_moments": [
-    "Spatial Plot-Availability Map: An interactive canvas for Vacation Village and Central Vista Farms.",
-    "Maker-Checker Split View: Post Sales receipt on the left, Accounts verification pane on the right.",
-    "Procurement Pipeline: Timeline visualization showing Site Manager to Management to Admin to Accounts flow.",
-    "Dynamic KPI Canvas: Numbers that roll and transition when filters change."
-  ],
-  "motion": {
-    "timing": "150-350ms",
-    "easing": "ease-out for entrances, ease-in-out for transitions",
-    "rules": [
-      "Communicate relationship, hierarchy, causality, and state.",
-      "Numbers roll, graphs interpolate, panels expand from source.",
-      "Nothing bounces meaninglessly."
-    ]
+  "grids_and_layouts": {
+    "philosophy": "Editorial Grid / The Technical Look. Reject generic admin-card floating layouts.",
+    "structure": "Use sharp 1px borders (border-collapse style) to divide sections like a financial newspaper. High density but optical clarity. Remove border radius (rounded-none or rounded-sm).",
+    "dual_stream_strategy": "Segment the Land vs Vault streams using a split-column architecture within the per-project and overall portfolio views. Projects without Vault will gracefully span 100% of the space showing only Land data.",
+    "spacing": "Generous Spacing inside cells (p-6 or p-8 inside bordered grid items) to maintain the premium feel."
   },
   "components": {
-    "charts": "Bespoke, minimal-noise with subtle axes, contextual annotations, and smooth transitions.",
-    "icons": "Thin technical iconography (lucide-react with stroke-width 1 or 1.5).",
-    "cards": "Subtle cool-grey boundaries (1px solid border), minimal or zero shadow. Flat, rectangular.",
-    "tables": "Editorial density. No unnecessary vertical borders. Clear alignment (numbers right, text left)."
+    "cards": "DO NOT use standard glossy cards with drop shadows. Use flat, rectangular, cardless layouts divided by sharp 1px borders.",
+    "headers": "Editorial greeting header with Date + top meta. Use large Serif.",
+    "tables": "Flat, flush borders. Data aligned right for numbers, left for text. Use IBM Plex Mono for figures.",
+    "activity_feed": "Minimalist chronological list. No heavy backgrounds, rely on typography for hierarchy."
+  },
+  "motion": {
+    "hover": "Subtle background shifts (e.g., hover:bg-[#F3F2EF]). No large translation or drop shadow increases.",
+    "transitions": "Use specific properties (transition-colors duration-200), NO 'transition-all'."
   },
   "accessibility": {
-    "testing": "All interactive and key informational elements MUST include a data-testid attribute.",
-    "contrast": "Maintain high contrast for text (near-black on off-white). Neon-lime should be for accents, not text unless on very dark backgrounds.",
-    "motion": "Respect prefers-reduced-motion."
+    "contrast": "Ensure text meets APCA standard. Near-black on warm off-white.",
+    "data_testid": "MANDATORY. Add data-testid attributes to all interactive elements, tabs, forms, and buttons."
   },
-  "media": {
-    "logos": [
+  "media_and_images": {
+    "avatars": [
       {
-        "url": "/agrocorp-mark-white.webp",
-        "category": "logo",
-        "description": "Agrocorp arch mark (White asset, place on dark plate)"
-      },
-      {
-        "url": "/group-logo-white.webp",
-        "category": "logo",
-        "description": "Agrocorp Group lockup (White asset, place on dark plate)"
+        "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMGF2YXRhciUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NzY1OTA5NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Executive Avatar"
       }
     ],
-    "images": [
+    "projects": [
       {
-        "url": "https://images.unsplash.com/photo-1732783384071-0cdb7bbbad94?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHRvcG9ncmFwaGljJTIwbWFwJTIwbWluaW1hbHxlbnwwfHx8fDE3ODY1Mzk4MDN8MA&ixlib=rb-4.1.0&q=85",
-        "category": "background",
-        "description": "Abstract white and mint topological map. Use for spatial data background hints."
+        "url": "https://images.unsplash.com/photo-1756435292384-1bf32eff7baf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwzfHxsdXh1cnklMjBtb2Rlcm4lMjBmYXJtaG91c2UlMjBlc3RhdGV8ZW58MHx8fHwxNzg3NjU5MDk1fDA&ixlib=rb-4.1.0&q=85",
+        "name": "Central Vista Farms",
+        "description": "Premium project (Has Land + Vault streams)"
       },
       {
-        "url": "https://images.unsplash.com/photo-1602128110234-2d11c0aaadfe?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwyfHxlZGl0b3JpYWwlMjBhcmNoaXRlY3R1cmUlMjBtaW5pbWFsJTIwd2FybXxlbnwwfHx8fDE3ODY1Mzk4MDN8MA&ixlib=rb-4.1.0&q=85",
-        "category": "hero",
-        "description": "Editorial minimal architecture. Use for empty states, login screens, or aesthetic breathers."
+        "url": "https://images.pexels.com/photos/5768733/pexels-photo-5768733.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "name": "Vacation Village",
+        "description": "Base project (Has Land stream only)"
       }
     ]
   },
   "instructions_to_main_agent": [
-    "Prioritize UI layout construction before backend integrations.",
-    "Do NOT use a standard left-sidebar layout as the primary nav. Create a top-tier command centre or horizontal editorial navigation.",
-    "For the spatial plot view, consider using a custom HTML Canvas implementation with SVG plotting, or a highly customized grid.",
-    "Rely heavily on typography and spacing instead of boxes and borders.",
-    "Create a custom Shadcn theme utilizing the exact color variables.",
-    "Ensure the data-testid convention is applied meticulously.",
-    "DO NOT use transparent backgrounds in headers, overlays, or dropdowns."
+    "Build a React (.js) + Tailwind CSS dashboard. Do NOT use TypeScript (.tsx).",
+    "DO NOT CHANGE FUNCTIONALITY. Ensure same data and same actions, purely a visual/layout rethink.",
+    "Ensure 'The Vault' is conditionally rendered (e.g., Vacation Village degrades cleanly and does not show it).",
+    "Display ALL money in full Indian format (₹xx,xx,xx,xxx) without Cr/L rounding.",
+    "Show a 'Rupees ... Only' words line beneath the Hero metric.",
+    "Use Phosphor Icons, Lucide-react, or simple SVG for sharp, premium iconography.",
+    "Reject standard 'Shadcn Card' component looks. Use flat divs with border-border 1px lines.",
+    "Create a stream-segmented redesign (Land vs Vault).",
+    "Provide a toggle/view to see a bolder full creative-redesign ALTERNATIVE blueprint to compare."
   ],
   "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
-    "Avoid the generic 'AI slop' aesthetic. Create depth and editorial styling without relying on heavy shadows or neon gradients.",
-    "No universal transition (transition: all). Animate specific properties.",
-    "Do not center-align the main app container. Text needs a natural reading flow.",
-    "Use modern interaction styles (pill-shaped or sharp buttons).",
-    "Never use placeholder image URLs. Use the provided ones.",
-    "Micro-animations are mandatory for interactive elements."
+    "Never use generic centered layouts, simplistic gradients, and uniform styling.",
+    "Do NOT apply 'transition: all'. Explicitly state transition properties.",
+    "Never use placeholder image URLs (via.placeholder.com etc.). Use the URLs provided in the media section.",
+    "Avoid using emoji characters as icons.",
+    "Use solid backgrounds for drop-downs/headers over content. NO transparent overlays.",
+    "Ensure generous spacing. Cramped designs look cheap."
   ]
 }

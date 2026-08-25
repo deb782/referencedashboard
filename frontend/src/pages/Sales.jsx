@@ -314,10 +314,12 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
   const [dlg, setDlg] = useState(null);       // {payment, existing?}
   const [allocDlg, setAllocDlg] = useState(null);   // receipt to bifurcate
   const [finalPrice, setFinalPrice] = useState(0);
-  const [showSchedule, setShowSchedule] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [trail, setTrail] = useState(null);
   const [grandTotal, setGrandTotal] = useState(0);
+  const [vaultTotal, setVaultTotal] = useState(0);
+  const [hasVault, setHasVault] = useState(false);
+  const [schedStream, setSchedStream] = useState(null);   // "land" | "vault" | null
 
   const load = async () => {
     const r = await api.get("/payments", { params: { unit_id: plot.unit_id } });
@@ -331,6 +333,8 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
       const proj = pr.data.find(p => p.project_id === plot.project_id);
       const unit = un.data.find(u => u.unit_id === plot.unit_id);
       setFinalPrice(Number(unit?.final_price || 0));
+      setVaultTotal(Number(unit?.vault?.total || 0));
+      setHasVault(!!unit?.vault?.enabled);
       const chargeCols = (proj?.columns || []).filter(c => c.tag === "charge");
       setGrandTotal(round2(chargeCols.reduce((s, c) => s + Number(unit?.data?.[c.key] || 0), 0)));
       const cols = (proj?.columns || []).filter(c => c.tag === "charge" || c.tag === "total");
@@ -357,6 +361,64 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
     } catch (e) { toast.error(apiError(e)); }
   };
 
+  const landRows = rows.filter(r => (r.stream || "land") !== "vault");
+  const vaultRows = rows.filter(r => (r.stream || "land") === "vault");
+
+  const renderInst = (r) => {
+    const bal = round2(Number(r.amount) - Number(r.paid_amount || 0));
+    return (
+      <div key={r.payment_id} className="border border-line rounded-md p-3" data-testid={`inst-row-${r.payment_id}`}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-semibold text-ink">{r.notes || `#${r.seq}`} <StatusPill status={r.status} /></div>
+            <div className="text-xs text-ink2 mt-0.5 font-mono-num">Due {r.due_date} · {inr(r.amount)} · Verified {inr(r.paid_amount)} · Balance {inr(bal)}</div>
+          </div>
+          {canRecord && r.status !== "received" && (
+            <button onClick={() => setDlg({ payment: r })} className="btn-primary text-xs py-1.5" data-testid={`receipt-btn-${r.payment_id}`}>
+              <Receipt className="w-3.5 h-3.5" /> Record payment
+            </button>
+          )}
+        </div>
+        {(r.receipts || []).length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {r.receipts.map((rc) => (
+              <div key={rc.receipt_id} className="flex items-center justify-between gap-2 text-xs bg-surfacealt/50 rounded px-2.5 py-1.5" data-testid={`rc-${rc.receipt_id}`}>
+                <div className="min-w-0">
+                  <span className="font-mono-num font-semibold text-ink">{inr(rc.amount)}</span>
+                  <span className="text-ink2"> · {rc.date} · {rc.mode}{rc.head ? ` · ${rc.head}` : ""}{rc.notes ? ` · ${rc.notes}` : ""}</span>
+                  {rc.verification_status === "returned" && rc.return_reason && <span className="text-bad"> · {rc.return_reason}</span>}
+                  {(rc.allocations || []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {rc.allocations.map((a, i) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-line bg-white text-ink2 font-mono-num">{a.label || a.key}: {inr(a.amount)}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <VStatus s={rc.verification_status} />
+                  <button onClick={() => setTrail(rc)} title="Audit trail" className="text-ink2 hover:text-ink" data-testid={`trail-${rc.receipt_id}`}>
+                    <History className="w-3.5 h-3.5" />
+                  </button>
+                  {canVerify && rc.verification_status === "pending" && (<>
+                    <button onClick={() => act(r.payment_id, rc.receipt_id, "yes")} className="text-ok font-semibold hover:underline" data-testid={`verify-yes-${rc.receipt_id}`}>YES</button>
+                    <button onClick={() => act(r.payment_id, rc.receipt_id, "no")} className="text-bad font-semibold hover:underline" data-testid={`verify-no-${rc.receipt_id}`}>NO</button>
+                  </>)}
+                  {canRecord && rc.verification_status === "returned" && (
+                    <button onClick={() => setDlg({ payment: r, existing: rc })} className="text-brand font-semibold hover:underline" data-testid={`correct-${rc.receipt_id}`}>Correct</button>
+                  )}
+                  {canVerify && rc.verification_status === "verified" && (rc.allocations || []).length === 0 && (
+                    <button onClick={() => setAllocDlg({ payment: r, receipt: rc })} className="text-brand font-semibold hover:underline" data-testid={`bifurcate-${rc.receipt_id}`}>Bifurcate</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const [showReport, setShowReport] = useState(false);
   const downloadReport = async () => {
     try {
@@ -378,8 +440,13 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
             <Download className="w-4 h-4" /> Download
           </button>
           {canRecord && (
-            <button onClick={() => setShowSchedule(true)} className="btn-secondary" data-testid={`edit-schedule-${plot.unit_id}`}>
+            <button onClick={() => setSchedStream("land")} className="btn-secondary" data-testid={`edit-schedule-${plot.unit_id}`}>
               <CalendarClock className="w-4 h-4" /> Edit schedule
+            </button>
+          )}
+          {canRecord && hasVault && (
+            <button onClick={() => setSchedStream("vault")} className="btn-secondary" data-testid={`edit-vault-schedule-${plot.unit_id}`}>
+              <CalendarClock className="w-4 h-4" /> Edit Vault schedule
             </button>
           )}
           <button onClick={() => setShowLog(true)} className="btn-secondary" data-testid={`schedule-log-${plot.unit_id}`}>
@@ -389,61 +456,18 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
         <button onClick={onClose} className="btn-secondary">Close</button>
       </div>}>
       <div className="space-y-3">
-        {rows.map((r) => {
-          const bal = round2(Number(r.amount) - Number(r.paid_amount || 0));
-          return (
-            <div key={r.payment_id} className="border border-line rounded-md p-3" data-testid={`inst-row-${r.payment_id}`}>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <div className="font-semibold text-ink">{r.notes || `#${r.seq}`} <StatusPill status={r.status} /></div>
-                  <div className="text-xs text-ink2 mt-0.5 font-mono-num">Due {r.due_date} · {inr(r.amount)} · Verified {inr(r.paid_amount)} · Balance {inr(bal)}</div>
-                </div>
-                {canRecord && r.status !== "received" && (
-                  <button onClick={() => setDlg({ payment: r })} className="btn-primary text-xs py-1.5" data-testid={`receipt-btn-${r.payment_id}`}>
-                    <Receipt className="w-3.5 h-3.5" /> Record payment
-                  </button>
-                )}
-              </div>
-              {(r.receipts || []).length > 0 && (
-                <div className="mt-2 space-y-1.5">
-                  {r.receipts.map((rc) => (
-                    <div key={rc.receipt_id} className="flex items-center justify-between gap-2 text-xs bg-surfacealt/50 rounded px-2.5 py-1.5" data-testid={`rc-${rc.receipt_id}`}>
-                      <div className="min-w-0">
-                        <span className="font-mono-num font-semibold text-ink">{inr(rc.amount)}</span>
-                        <span className="text-ink2"> · {rc.date} · {rc.mode}{rc.head ? ` · ${rc.head}` : ""}{rc.notes ? ` · ${rc.notes}` : ""}</span>
-                        {rc.verification_status === "returned" && rc.return_reason && <span className="text-bad"> · {rc.return_reason}</span>}
-                        {(rc.allocations || []).length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {rc.allocations.map((a, i) => (
-                              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded border border-line bg-white text-ink2 font-mono-num">{a.label || a.key}: {inr(a.amount)}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <VStatus s={rc.verification_status} />
-                        <button onClick={() => setTrail(rc)} title="Audit trail" className="text-ink2 hover:text-ink" data-testid={`trail-${rc.receipt_id}`}>
-                          <History className="w-3.5 h-3.5" />
-                        </button>
-                        {canVerify && rc.verification_status === "pending" && (<>
-                          <button onClick={() => act(r.payment_id, rc.receipt_id, "yes")} className="text-ok font-semibold hover:underline" data-testid={`verify-yes-${rc.receipt_id}`}>YES</button>
-                          <button onClick={() => act(r.payment_id, rc.receipt_id, "no")} className="text-bad font-semibold hover:underline" data-testid={`verify-no-${rc.receipt_id}`}>NO</button>
-                        </>)}
-                        {canRecord && rc.verification_status === "returned" && (
-                          <button onClick={() => setDlg({ payment: r, existing: rc })} className="text-brand font-semibold hover:underline" data-testid={`correct-${rc.receipt_id}`}>Correct</button>
-                        )}
-                        {canVerify && rc.verification_status === "verified" && (rc.allocations || []).length === 0 && (
-                          <button onClick={() => setAllocDlg({ payment: r, receipt: rc })} className="text-brand font-semibold hover:underline" data-testid={`bifurcate-${rc.receipt_id}`}>Bifurcate</button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {vaultRows.length > 0 && <div className="overline text-ink2">Land · plot payment schedule</div>}
+        {landRows.map((r) => renderInst(r))}
       </div>
+      {vaultRows.length > 0 && (
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="overline text-brand">The Vault · construction schedule</div>
+            <span className="text-xs text-ink2 font-mono-num">Vault total {inr(vaultTotal)}</span>
+          </div>
+          <div className="space-y-3">{vaultRows.map((r) => renderInst(r))}</div>
+        </div>
+      )}
 
       {dlg && (
         <ReceiptDialog payment={dlg.payment} existing={dlg.existing} components={components}
@@ -454,9 +478,12 @@ function PlotDrilldown({ plot, canRecord, canVerify, onClose, onChanged }) {
           onClose={() => setAllocDlg(null)} onSaved={() => { setAllocDlg(null); load(); onChanged(); }} />
       )}
       {showReport && <ReportViewer unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowReport(false)} />}
-      {showSchedule && (
-        <ScheduleEditor unitId={plot.unit_id} plotNumber={plot.plot_number} rows={rows} grandTotal={grandTotal}
-          onClose={() => setShowSchedule(false)} onSaved={() => { setShowSchedule(false); load(); onChanged(); }} />
+      {schedStream && (
+        <ScheduleEditor unitId={plot.unit_id} plotNumber={plot.plot_number}
+          rows={schedStream === "vault" ? vaultRows : landRows}
+          grandTotal={schedStream === "vault" ? vaultTotal : grandTotal}
+          stream={schedStream}
+          onClose={() => setSchedStream(null)} onSaved={() => { setSchedStream(null); load(); onChanged(); }} />
       )}
       {showLog && <ScheduleLog unitId={plot.unit_id} plotNumber={plot.plot_number} onClose={() => setShowLog(false)} />}
       {trail && <ReceiptTrail receipt={trail} onClose={() => setTrail(null)} />}
