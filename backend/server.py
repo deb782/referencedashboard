@@ -3351,27 +3351,72 @@ _CVF_VAULT = {
 
 
 async def _migrate_cvf():
-    """Idempotent: fix Central Vista Farms column tags (so every charge head appears
-    in reports/pivots) and seed The Vault config. Matched by NAME so it works in any
-    environment. Never touches other projects (e.g. Vacation Village)."""
+    """Idempotent self-heal for Central Vista Farms. Matched by NAME so it works in any
+    environment. If the CVF project is structurally broken (missing its real charge
+    columns like BSP / NET PAYABLE — as happened on production), rebuild the full column
+    set and heal each AVAILABLE plot's data from the embedded canonical seed
+    (backend/cvf_seed.json). Always ensures The Vault config. Never touches sold plots or
+    any other project (e.g. Vacation Village)."""
     proj = await db.projects.find_one({"name": {"$regex": "^Central Vista", "$options": "i"}}, {"_id": 0})
     if not proj:
         return
-    changed = False
+    pid = proj["project_id"]
     cols = proj.get("columns") or []
-    for c in cols:
-        want = _CVF_TAGS.get(c.get("key"))
-        if want and c.get("tag") != want:
-            c["tag"] = want
-            changed = True
+    keys = {c.get("key") for c in cols}
+    broken = not ({"bsp", "net_payable"} <= keys)
+
+    seed = None
+    seed_path = os.path.join(os.path.dirname(__file__), "cvf_seed.json")
+    if os.path.exists(seed_path):
+        try:
+            with open(seed_path) as f:
+                seed = json.load(f)
+        except Exception as e:
+            log.warning("CVF seed load failed: %s", e)
+
     updates = {}
-    if changed:
-        updates["columns"] = cols
+    if broken and seed and seed.get("columns"):
+        # Rebuild the canonical column structure.
+        updates["columns"] = seed["columns"]
+    else:
+        # Structured already — just ensure canonical tags (cheap).
+        changed = False
+        for c in cols:
+            want = _CVF_TAGS.get(c.get("key"))
+            if want and c.get("tag") != want:
+                c["tag"] = want
+                changed = True
+        if changed:
+            updates["columns"] = cols
     if not (proj.get("vault_config") or {}).get("enabled"):
-        updates["vault_config"] = _CVF_VAULT
+        updates["vault_config"] = seed.get("vault_config") if (seed and seed.get("vault_config")) else _CVF_VAULT
     if updates:
-        await db.projects.update_one({"project_id": proj["project_id"]}, {"$set": updates})
-        log.info("CVF migration applied: %s", ", ".join(updates.keys()))
+        await db.projects.update_one({"project_id": pid}, {"$set": updates})
+        log.info("CVF project healed: %s", ", ".join(updates.keys()))
+
+    # Heal plot data only when the project was broken (one-time), so booked/edited data
+    # is never overwritten on subsequent boots.
+    if broken and seed and seed.get("units"):
+        existing = await db.units.find({"project_id": pid}, {"_id": 0, "unit_id": 1, "plot_number": 1, "status": 1}).to_list(5000)
+        by_pn = {str(u["plot_number"]): u for u in existing}
+        healed = added = 0
+        for su in seed["units"]:
+            pn = str(su["plot_number"])
+            cur = by_pn.get(pn)
+            if cur is None:
+                await db.units.insert_one({
+                    "unit_id": "unit_" + uuid.uuid4().hex[:12], "project_id": pid,
+                    "plot_number": pn, "area_sqft": su.get("area_sqft", 0), "area": su.get("area_sqft", 0),
+                    "plc_details": "", "other_charges": 0, "status": "available",
+                    "data": su.get("data", {}), "total": su.get("total", 0),
+                    "created_at": now()})
+                added += 1
+            elif cur.get("status") != "sold":
+                await db.units.update_one({"unit_id": cur["unit_id"]}, {"$set": {
+                    "area_sqft": su.get("area_sqft", 0), "data": su.get("data", {}),
+                    "total": su.get("total", 0)}})
+                healed += 1
+        log.info("CVF plots healed=%d added=%d (available only; sold untouched)", healed, added)
 
 
 @app.on_event("startup")
