@@ -22,7 +22,12 @@ export default function AdminDashboard({ stats, user }) {
   const rate = totals.sold > 0 ? Math.round((totals.received / totals.sold) * 100) : 0;
 
   return (
-    <div data-testid="dashboard-page" className="space-y-10">
+    <div data-testid="dashboard-page" className="newsdash space-y-8">
+      {/* Masthead */}
+      <div className="flex items-center justify-between border-b border-ink/80 pb-2 text-[10px] uppercase tracking-[0.22em] font-semibold text-ink2">
+        <span>Management Console · Financial Report</span>
+        <span className="font-mono-num">{today()}</span>
+      </div>
       {/* Editorial header */}
       <header className="flex flex-wrap items-end justify-between gap-6">
         <div>

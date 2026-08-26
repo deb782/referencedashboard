@@ -1,0 +1,27 @@
+{
+  "summary": "Validated the 'financial newspaper' redesign of Admin dashboard + CVF pivot fix + Vault fields on dashboard/PDF. Backend: /api/dashboard returns has_vault=true for CVF (with land+vault streams), has_vault=false for VV, consolidated has all vault_* fields, and CVF pivot lists all required charge heads (BSP, GST, PLCs x4, Legal, Electricity, Khata, Advance Maintenance, Club, IFMS, Sinking, Stamp Duty, Grand Total = 20 rows). test_vault_flow.py (books CVF w/ Vault, mismatched-plots + dashboard streams check) and test_vault_pdf.py (verifies 'The Vault' + 'Construction' sections in PDF) both PASS end-to-end and self-clean. Frontend: admin login OK, dashboard-page mounts with class 'newsdash', masthead 'Management Console · Financial Report' present, editorial serif look confirmed, portfolio-received renders (not blank), revenue-by-stream visible (stream-land, stream-vault, vault-attach '0 plot(s) with The Vault') even with 0 sold — because CVF has vault_config. CVF card shows dash-streams-<cvf>, VV card has NO dash-streams (regression clear). All 12 required pivot heads found in CVF card. No console errors, no overlapping/cut-off elements observed at 1920 width. DB pristine: CVF 101 available + vault_config intact, VV 256 untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_dashboard_newsdash.py",
+    "/app/backend/tests/test_vault_flow.py",
+    "/app/backend/tests/test_vault_pdf.py",
+    "/app/test_reports/pytest/newsdash.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AdminDashboard.jsx and ManagementDashboard.jsx share ~150 lines of near-identical StreamPanel/StreamMini/ProjectPanel/MiniStat/PanelHead components — consider extracting into a shared /components/dashboards/newsdash.jsx module to reduce duplication (DRY).",
+    "Both dashboard files import 'inrShort' and 'ShieldCheck' (Admin) but do not use them — unused imports.",
+    "ManagementDashboard hides StreamPanel behind projects.some(has_vault); if a management user is assigned ONLY to VV, the stream panel is (correctly) hidden — good. But if assigned to CVF with 0 vault sold, panel appears with zeroes (matches Admin behavior — intentional per spec)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dashboard_newsdash.py (new pytest for dashboard pivot heads + vault flags)"
+  ],
+  "success_rate": {"backend": "100% (5/5 dashboard tests + test_vault_flow + test_vault_pdf)", "frontend": "100%"},
+  "test_credentials": "Admin 9513242807/Repro@123 (only account exercised for this round; no standing management user in preview)",
+  "seed_data_creation": "None. test_vault_flow.py books a CVF plot with Vault then fully reverts; final state = CVF 101 available + vault_config, VV 256 untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Newsdash redesign lives in /app/frontend/src/index.css (.newsdash scope, Playfair import) and dashboard JSX files. Reliable testids: dashboard-page (has 'newsdash' class), portfolio-received, revenue-by-stream, stream-land, stream-vault, vault-attach, dash-project-<pid>, dash-streams-<pid>, pivot-<key>. CVF pid=proj_01d7e89ba838, VV pid=proj_53fb360c1f0a. Login form uses placeholder '9999999999' for the phone field (no name attribute). Management dashboard code path verified only via read (no management user seeded).",
+  "rca of the issue": "N/A — no bugs. Prior blank-dashboard risk mitigated; _migrate_cvf startup is idempotent and CVF already has 19 charge columns + Grand Total = 20 pivot rows on preview."
+}

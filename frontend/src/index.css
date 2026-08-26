@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:wght@500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -93,3 +93,49 @@ body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .ag-modal { animation: ag-modal-in 0.28s var(--ag-ease) both; }
+
+/* ===== Option C · "Financial Newspaper" scoped dashboard theme (newsdash) ===== */
+.newsdash {
+  --nd-bg: #f9f8f6;
+  --nd-ink: #1a1a18;
+  --nd-ink2: #5c5c5a;
+  --nd-line: #e2e0d8;
+  --nd-land: #4a4a4a;
+  --nd-vault: #9bbad4;
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(0,0,0,0.012) 3px, rgba(0,0,0,0.012) 4px),
+    var(--nd-bg);
+}
+.newsdash .font-display,
+.newsdash h1, .newsdash h2, .newsdash h3 {
+  font-family: 'Playfair Display', Georgia, serif !important;
+  letter-spacing: -0.01em;
+}
+.newsdash .kpi-value { font-family: 'JetBrains Mono', ui-monospace, monospace !important; letter-spacing: -0.02em; }
+/* Flat, cardless, sharp-bordered sections like a financial broadsheet */
+.newsdash .panel,
+.newsdash section.panel {
+  border-radius: 0 !important;
+  border: 1px solid var(--nd-line) !important;
+  box-shadow: none !important;
+  background: #fff;
+}
+.newsdash .panel + .panel { margin-top: 0; }
+.newsdash .overline {
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--nd-ink2);
+}
+/* Masthead rule under the greeting header */
+.newsdash > header {
+  border-bottom: 3px double var(--nd-ink);
+  padding-bottom: 1.25rem;
+}
+.newsdash .rounded-md, .newsdash .rounded-lg, .newsdash .rounded-full { border-radius: 0 !important; }
+.newsdash .rounded-full.bar-keep, .newsdash [style*="rounded"] { }
+/* keep progress bars rounded for legibility */
+.newsdash .h-\[6px\], .newsdash .h-\[4px\], .newsdash .h-2\.5 { border-radius: 9999px !important; }
+.newsdash .hairline, .newsdash .divide-line > * + * { border-color: var(--nd-line) !important; }

@@ -1878,10 +1878,12 @@ async def _plot_report_data(unit_id: str) -> dict:
 
     # Total Payable is fetched from the instalment schedule (which the rep sets to equal
     # the Grand Total). Falls back to final price / stored total only if there is no schedule.
-    _sched_total = round(sum(_num(p.get("amount")) for p in pays), 2)
+    _land_pays = [p for p in pays if (p.get("stream") or "land") != "vault"]
+    _vault_pays = [p for p in pays if (p.get("stream") or "land") == "vault"]
+    _sched_total = round(sum(_num(p.get("amount")) for p in _land_pays), 2)
     total_payable = _sched_total if _sched_total > 0 else round(_num(unit.get("final_price")) or _num(unit.get("total")), 2)
     plan, verified_total, awaiting_total = [], 0.0, 0.0
-    for p in pays:
+    for p in _land_pays:
         exp = round(_num(p.get("amount")), 2)
         rec = round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
                         if r.get("verification_status") == "verified"), 2)
@@ -1895,6 +1897,29 @@ async def _plot_report_data(unit_id: str) -> dict:
     verified_total = round(verified_total, 2)
     awaiting_total = round(awaiting_total, 2)
     outstanding = round(total_payable - verified_total, 2)
+
+    # The Vault add-on: its own schedule + totals (only present when opted in)
+    vault_meta = unit.get("vault") or {}
+    vault_plan, vault_verified = [], 0.0
+    for p in _vault_pays:
+        exp = round(_num(p.get("amount")), 2)
+        rec = round(sum(_num(r.get("amount")) for r in p.get("receipts", [])
+                        if r.get("verification_status") == "verified"), 2)
+        vault_verified += rec
+        vault_plan.append({"installment": p.get("notes") or f"Instalment {p.get('seq')}",
+                           "due": p.get("due_date") or "—", "expected": exp, "received": rec,
+                           "balance": round(exp - rec, 2), "status": p.get("status", "pending")})
+    vault_total = round(_num(vault_meta.get("total")), 2) if vault_meta.get("enabled") else 0.0
+    vault = {
+        "enabled": bool(vault_meta.get("enabled")) and len(_vault_pays) > 0,
+        "label": vault_meta.get("label", ""),
+        "construction": round(_num(vault_meta.get("construction")), 2),
+        "gst": round(_num(vault_meta.get("gst")), 2),
+        "total": vault_total,
+        "verified": round(vault_verified, 2),
+        "outstanding": round(vault_total - vault_verified, 2),
+        "plan": vault_plan,
+    }
 
     pending_rows = [p for p in pays if p.get("status") != "received"]
     next_due, next_due_date = None, None
@@ -1930,6 +1955,7 @@ async def _plot_report_data(unit_id: str) -> dict:
         "gst_components": gst_components,
         "gst_total": gst_total,
         "plan": plan,
+        "vault": vault,
         "history": history,
         "expected_remaining": expected_remaining,
         "upcoming": upcoming,
@@ -2080,12 +2106,29 @@ def _build_report_pdf(d: dict) -> bytes:
             ("LINEABOVE", (0, -1), (-1, -1), 0.6, OLIVE)]))
         story.append(gt)
 
-    # Payment Plan
-    money_table("Payment Plan",
+    # Payment Plan (Land)
+    _v = d.get("vault") or {}
+    _has_vault = _v.get("enabled")
+    money_table("Payment Plan" + (" — Land" if _has_vault else ""),
                 ["Installment", "Due Date", "Expected", "Received", "Balance", "Status"],
                 [[p["installment"], str(p["due"]), _inr_plain(p["expected"]), _inr_plain(p["received"]),
                   _inr_plain(p["balance"]), p["status"].title()] for p in d["plan"]],
                 aligns=[2, 3, 4], widths=[W * 0.26, W * 0.16, W * 0.15, W * 0.15, W * 0.15, W * 0.13])
+
+    # The Vault — optional construction add-on with its own schedule
+    if _has_vault:
+        story.append(H("The Vault — Construction Add-on"))
+        story.append(Paragraph(
+            f"<b>{_v.get('label','')}</b> &nbsp;·&nbsp; Construction {_inr_plain(_v.get('construction',0))} "
+            f"+ GST {_inr_plain(_v.get('gst',0))} = <b>Total {_inr_plain(_v.get('total',0))}</b> &nbsp;·&nbsp; "
+            f"Verified Received {_inr_plain(_v.get('verified',0))} &nbsp;·&nbsp; Outstanding {_inr_plain(_v.get('outstanding',0))}",
+            small))
+        story.append(Spacer(1, 4))
+        money_table("The Vault — Payment Plan",
+                    ["Installment", "Due Date", "Expected", "Received", "Balance", "Status"],
+                    [[p["installment"], str(p["due"]), _inr_plain(p["expected"]), _inr_plain(p["received"]),
+                      _inr_plain(p["balance"]), p["status"].title()] for p in _v.get("plan", [])],
+                    aligns=[2, 3, 4], widths=[W * 0.26, W * 0.16, W * 0.15, W * 0.15, W * 0.15, W * 0.13])
 
     # Actual Payment History
     money_table("Actual Payment History",
@@ -3279,6 +3322,58 @@ async def _scrub_nonfinite_data():
         log.info("Scrubbed non-finite numbers from %d document(s)", fixed)
 
 
+
+# Canonical column tags for Central Vista Farms (self-heals any environment).
+_CVF_TAGS = {
+    "farm": "plot_id", "extent_sft": "area", "bsp": "charge", "guidance_value": "reference",
+    "development_charge": "ignore", "18_gst": "charge", "east_facing_plc": "charge",
+    "corner_plc": "charge", "cv_facing_plc": "charge", "2_or_more_plcs": "charge",
+    "legal_fee": "charge", "18_gst_2": "charge", "electricity_infrastructure_charges": "charge",
+    "18_gst_3": "charge", "khata_registration_charges": "charge", "18_gst_4": "charge",
+    "advance_maintenance_2_years": "charge", "18_gst_5": "charge", "club_membership": "charge",
+    "18_gst_of_club_membership": "charge", "ifms": "charge", "sinking_fund": "charge",
+    "stamp_duty": "charge", "net_payable": "total",
+}
+_CVF_VAULT = {
+    "enabled": True,
+    "variants": [
+        {"variant_id": "7000", "label": "7000 sqft", "construction": 7750000, "gst": 1395000, "total": 9145000},
+        {"variant_id": "8000", "label": "8000 sqft", "construction": 8400000, "gst": 1512000, "total": 9912000},
+        {"variant_id": "8000_2br", "label": "8000 sqft (2 BR)", "construction": 9100000, "gst": 1638000, "total": 10738000},
+        {"variant_id": "10000", "label": "10000 sqft", "construction": 11000000, "gst": 1980000, "total": 12980000},
+    ],
+    "schedule_template": (
+        [{"label": "On Booking", "pct": 10}, {"label": "On Agreement to Sell", "pct": 10}]
+        + [{"label": f"Instalment {i}", "pct": 10} for i in range(1, 8)]
+        + [{"label": "On Offer of Possession", "pct": 10, "on_possession": True}]
+    ),
+}
+
+
+async def _migrate_cvf():
+    """Idempotent: fix Central Vista Farms column tags (so every charge head appears
+    in reports/pivots) and seed The Vault config. Matched by NAME so it works in any
+    environment. Never touches other projects (e.g. Vacation Village)."""
+    proj = await db.projects.find_one({"name": {"$regex": "^Central Vista", "$options": "i"}}, {"_id": 0})
+    if not proj:
+        return
+    changed = False
+    cols = proj.get("columns") or []
+    for c in cols:
+        want = _CVF_TAGS.get(c.get("key"))
+        if want and c.get("tag") != want:
+            c["tag"] = want
+            changed = True
+    updates = {}
+    if changed:
+        updates["columns"] = cols
+    if not (proj.get("vault_config") or {}).get("enabled"):
+        updates["vault_config"] = _CVF_VAULT
+    if updates:
+        await db.projects.update_one({"project_id": proj["project_id"]}, {"$set": updates})
+        log.info("CVF migration applied: %s", ", ".join(updates.keys()))
+
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("phone", unique=True)
@@ -3286,6 +3381,7 @@ async def startup():
     await db.units.create_index([("project_id", 1), ("plot_number", 1)])
     await _scrub_nonfinite_data()
     await _migrate_receipt_verification()
+    await _migrate_cvf()
     try:
         init_storage()
         log.info("Object storage initialised")

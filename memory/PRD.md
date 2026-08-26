@@ -475,3 +475,10 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - Admin dashboard: "Revenue by stream" panel (Land vs Vault columns, vault-attach badge) + per-project Land/Vault split (dash-streams-<pid>). Projects without Vault (VV) render no Vault UI. Management consolidated includes Vault.
 - Verified: tests/test_vault_flow.py (ALL PASS) + testing_agent iteration_28 (100% FE+BE, 0 bugs). DB pristine: CVF 101 available + vault_config, VV 256 untouched.
 - ACTION FOR USER: Redeploy to push live. When booking a CVF plot you'll now see 'Add The Vault'; the dashboard splits Land vs Vault revenue.
+## PHASE 31 · CVF component-display fix + Vault-in-PDF + newspaper dashboard (2026-06)
+- **Root cause of the "only 4 PLC components" bug:** it was on PRODUCTION — Phase-1 was a preview-DB data change, and a redeploy ships code, not preview data, so production's CVF column tags were stale. (All values were ₹0 simply because CVF has 0 sold.)
+- **Fix (self-healing):** added idempotent startup migration `_migrate_cvf()` (server.py), matched by project NAME, that sets CVF's canonical column tags (all real charge heads → `charge`) and seeds `vault_config`. Runs on every boot → production self-heals on redeploy. No-op on preview (already correct). Never touches VV.
+- **Vault in statement PDF:** `_plot_report_data` now splits Land vs Vault streams; the PDF shows "Payment Plan — Land" + a "The Vault — Construction Add-on" summary + "The Vault — Payment Plan" table. Verified by tests/test_vault_pdf.py.
+- **Newspaper dashboard (Option C):** scoped `.newsdash` theme in index.css (Playfair Display headings, flat sharp-bordered cardless sections, masthead double-rule, Land=#4a4a4a / Vault=#9bbad4). Applied to BOTH Admin & Management dashboards + StreamPanel/StreamMini. Purely visual — no functionality change. VV shows no Vault UI.
+- Verified: testing_agent iteration_29 (100% BE+FE, 0 bugs); DB pristine (CVF 101 available + vault_config, VV 256). Tests: test_vault_pdf.py, test_vault_flow.py.
+- ACTION FOR USER: **Redeploy** so production picks up the migration (fixes the component list) + the Vault PDF + the newspaper dashboard.
