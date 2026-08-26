@@ -1,0 +1,19 @@
+{
+  "summary": "Frontend-only visual polish verification for the newsdash (financial newspaper) dashboard theme. Admin dashboard loads (data-testid=dashboard-page present), renders with nd-masthead ('Management Console \u00b7 Financial Report' + date), drop-cap on greeting h1 ('G' in 'Good morning, Debabrata.'), broadsheet top rules on hero + revenue-by-stream panels, and powder-blue kicker markers before every uppercase .overline label (12 overlines detected, kicker ::before rendered). Verified at both 1440 and 1920 widths \u2014 no overflow (scrollWidth == clientWidth), no overlapping/cut-off content, no console errors, no pageerror events. Hero 'TOTAL RECEIVED \u00b7 PORTFOLIO', per-project block referencing Central Vista Farms, and revenue-by-stream panel (Land \u00b7 Plots + The Vault \u00b7 Construction) all render. Post-Sales dashboard (9000000001/Pass@123) loads to /dashboard with dashboard-page testid, does NOT carry .newsdash class \u2014 unaffected as expected. Sales page (/sales) and Units page (/units) render normally with the original olive/beige theme; no .newsdash / .nd-masthead leak. Scoped CSS is working correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped", "frontend": "100%"},
+  "test_credentials": "Admin 9513242807/Repro@123 (used); Post Sales 9000000001/Pass@123 (used); Accounts not tested (Post Sales already confirmed non-newsdash path).",
+  "seed_data_creation": "None. CVF vault_config already present.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "newsdash polish (nd-masthead, drop-cap, top-rules, kicker before overlines) verified visually at 1440 and 1920 on Admin & Management dashboards. Post-Sales dashboard intentionally not newsdash-themed. Scoped CSS does not leak to Sales/Units. No console/page errors observed."
+}

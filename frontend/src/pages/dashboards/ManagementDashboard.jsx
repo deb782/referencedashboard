@@ -15,7 +15,7 @@ export default function ManagementDashboard({ stats, user }) {
 
   return (
     <div data-testid="dashboard-page" className="newsdash space-y-8">
-      <div className="flex items-center justify-between border-b border-ink/80 pb-2 text-[10px] uppercase tracking-[0.22em] font-semibold text-ink2">
+      <div className="nd-masthead flex items-center justify-between border-b border-ink/80 pb-2 text-[10px] uppercase tracking-[0.22em] font-semibold text-ink2">
         <span>Management Console · Financial Report</span>
         <span className="font-mono-num">{today()}</span>
       </div>

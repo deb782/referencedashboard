@@ -139,3 +139,42 @@ body {
 /* keep progress bars rounded for legibility */
 .newsdash .h-\[6px\], .newsdash .h-\[4px\], .newsdash .h-2\.5 { border-radius: 9999px !important; }
 .newsdash .hairline, .newsdash .divide-line > * + * { border-color: var(--nd-line) !important; }
+
+/* ===== Option C polish · broadsheet detailing ===== */
+/* Nameplate masthead */
+.newsdash .nd-masthead {
+  border-top: 2px solid var(--nd-ink);
+  border-bottom: 1px solid var(--nd-ink);
+  padding-top: 0.5rem;
+}
+/* Drop-cap on the greeting headline */
+.newsdash header h1 { font-weight: 700 !important; }
+.newsdash header h1::first-letter {
+  float: left;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 5.6rem;
+  line-height: 0.66;
+  font-weight: 800;
+  padding: 0.04em 0.14em 0 0;
+  margin-right: 0.04em;
+  color: var(--nd-ink);
+}
+/* Broadsheet block: each top-level section panel gets a thin top rule like a newspaper module */
+.newsdash > section.panel,
+.newsdash > .panel { border-top: 2px solid var(--nd-ink) !important; }
+/* Kicker marker before every uppercase label */
+.newsdash .overline { position: relative; display: inline-flex; align-items: center; gap: 0.5rem; }
+.newsdash .overline::before {
+  content: "";
+  width: 14px; height: 2px;
+  background: var(--nd-vault);
+  display: inline-block; flex: none;
+}
+/* Column rules: strengthen the vertical dividers so grids read as newspaper columns */
+.newsdash .md\:divide-x > * + *,
+.newsdash .lg\:border-r { border-color: var(--nd-line) !important; }
+.newsdash .grid.lg\:grid-cols-\[1\.4fr_1fr\] > *:first-child { border-right-width: 1px; }
+/* Section headings inside panels get a hairline underline (editorial rule) */
+.newsdash .panel > .border-b { border-bottom-color: var(--nd-ink) !important; border-bottom-width: 1px; }
+/* Serif, tighter KPI hero */
+.newsdash .kpi-value { font-weight: 600; }

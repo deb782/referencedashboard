@@ -482,3 +482,8 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - **Newspaper dashboard (Option C):** scoped `.newsdash` theme in index.css (Playfair Display headings, flat sharp-bordered cardless sections, masthead double-rule, Land=#4a4a4a / Vault=#9bbad4). Applied to BOTH Admin & Management dashboards + StreamPanel/StreamMini. Purely visual — no functionality change. VV shows no Vault UI.
 - Verified: testing_agent iteration_29 (100% BE+FE, 0 bugs); DB pristine (CVF 101 available + vault_config, VV 256). Tests: test_vault_pdf.py, test_vault_flow.py.
 - ACTION FOR USER: **Redeploy** so production picks up the migration (fixes the component list) + the Vault PDF + the newspaper dashboard.
+
+## PHASE 32 · Newspaper dashboard polish (2026-06)
+- Added broadsheet detailing to the `.newsdash` theme (index.css): nameplate masthead (`nd-masthead`), drop-cap on the greeting headline (`header h1::first-letter`), 2px dark top rules on top-level section panels, powder-blue kicker markers before uppercase `.overline` labels, stronger column/section rules. Applied on Admin + Management dashboards. Purely visual, scoped, no functionality change.
+- Verified: testing_agent iteration_30 (100% FE, 0 bugs) — renders flawlessly at 1440 & 1920, no overflow/overlap/console errors, CSS does not leak to Sales/Units.
+- ACTION FOR USER: Redeploy to see it on production.
