@@ -3326,7 +3326,7 @@ async def _scrub_nonfinite_data():
 # Canonical column tags for Central Vista Farms (self-heals any environment).
 _CVF_TAGS = {
     "farm": "plot_id", "extent_sft": "area", "bsp": "charge", "guidance_value": "reference",
-    "development_charge": "ignore", "18_gst": "charge", "east_facing_plc": "charge",
+    "development_charge": "charge", "18_gst": "charge", "east_facing_plc": "charge",
     "corner_plc": "charge", "cv_facing_plc": "charge", "2_or_more_plcs": "charge",
     "legal_fee": "charge", "18_gst_2": "charge", "electricity_infrastructure_charges": "charge",
     "18_gst_3": "charge", "khata_registration_charges": "charge", "18_gst_4": "charge",
