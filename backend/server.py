@@ -62,12 +62,20 @@ MIME_TYPES = {
 _storage_key = None
 
 
+class StorageError(Exception):
+    def __init__(self, status: int, body: str = ""):
+        self.status = status
+        self.body = body
+        super().__init__(f"storage {status}: {body[:200]}")
+
+
 def init_storage(force: bool = False):
     global _storage_key
     if _storage_key and not force:
         return _storage_key
     resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        raise StorageError(resp.status_code, f"init: {resp.text or ''}")
     _storage_key = resp.json()["storage_key"]
     return _storage_key
 
@@ -89,10 +97,12 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
 def get_object(path: str) -> tuple:
     key = init_storage()
     resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    # 404 can mean a dead session key -> mint a fresh key once and retry.
     if resp.status_code == 404:
         key = init_storage(force=True)
         resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        raise StorageError(resp.status_code, resp.text or "")
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
@@ -2513,11 +2523,20 @@ async def download_file(file_id: str, authorization: str = Header(None),
         raise HTTPException(404, "This attachment has no stored file")
     try:
         data, ctype = get_object(rec["storage_path"])
+    except StorageError as e:
+        log.error("Attachment fetch failed file=%s path=%s status=%s body=%s",
+                  file_id, rec.get("storage_path"), e.status, e.body[:300])
+        if e.status == 404:
+            raise HTTPException(404, "This file is no longer available in storage. "
+                                     "Please re-upload it and try again.")
+        if e.status in (402, 403):
+            raise HTTPException(503, "File storage is temporarily unavailable for this account "
+                                     "(billing/key). Please contact the administrator.")
+        raise HTTPException(503, "File storage is temporarily unavailable. Please try again shortly.")
     except Exception as e:
-        log.warning("Attachment fetch failed for %s: %s", file_id, e)
-        raise HTTPException(404, "This attachment isn't available in this environment. "
-                                 "Files uploaded in preview are stored separately from production — "
-                                 "please re-upload it here.")
+        log.error("Attachment fetch crashed file=%s path=%s err=%s",
+                  file_id, rec.get("storage_path"), e)
+        raise HTTPException(503, "Could not retrieve this file right now. Please try again shortly.")
     return Response(content=data, media_type=rec.get("content_type", ctype),
                     headers={"Content-Disposition":
                              f'inline; filename="{rec.get("original_filename", "file")}"'})
