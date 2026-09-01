@@ -377,7 +377,7 @@ class ProcurementRequest(BaseModel):
     status: Literal["pending_management", "management_clarification",
                     "pending_admin", "pending_clarification",
                     "approved", "rejected",
-                    "po_issued", "paid"] = "pending_admin"
+                    "po_issued", "paid", "cancelled"] = "pending_admin"
     requested_by: str
     requested_at: str = Field(default_factory=now)
     pi_file: Optional[dict] = None          # Performa Invoice (site manager)
@@ -432,6 +432,10 @@ class AdminAction(BaseModel):
 class MgmtAction(BaseModel):
     action: Literal["approve", "reject", "clarify"]
     note: str = ""
+
+
+class ProcCancel(BaseModel):
+    reason: str = ""
 
 
 class ProcurementPayment(BaseModel):
@@ -2594,6 +2598,30 @@ async def mgmt_action_procurement(request_id: str, payload: MgmtAction,
                           f"Approved procurement ready for PO/payment · "
                           f"{doc['subject']}", "/procurement")
     return {"ok": True, "status": new_status}
+
+
+@api.post("/procurement/{request_id}/cancel")
+async def cancel_procurement(request_id: str, payload: ProcCancel,
+                              user: User = Depends(require_roles("admin"))):
+    """Admin cancels a procurement request raised in error; reason kept on record."""
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    if doc["status"] == "cancelled":
+        raise HTTPException(400, "Request is already cancelled")
+    if not payload.reason.strip():
+        raise HTTPException(400, "A reason is required to cancel")
+    await db.procurement.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": "cancelled",
+                  "cancel_reason": payload.reason.strip(),
+                  "cancelled_by": user.user_id,
+                  "cancelled_by_name": user.name,
+                  "cancelled_at": now()}})
+    msg = f"Procurement '{doc['subject']}' cancelled by admin · {payload.reason.strip()}"
+    await notify(doc["requested_by"], "procurement_cancelled", msg, "/procurement")
+    await notify_role("accounts", "procurement_cancelled", msg, "/procurement")
+    return {"ok": True, "status": "cancelled"}
 
 
 # ----- inventory (site_manager) ------------------------------------------

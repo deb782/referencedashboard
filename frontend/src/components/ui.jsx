@@ -138,6 +138,7 @@ const STATUS_STYLES = {
   po_issued: { c: "#3d4a0a", label: "PO Issued" },
   paid: { c: "#3d4a0a", label: "Paid" },
   rejected: { c: "#a33b28", label: "Rejected" },
+  cancelled: { c: "#8a8a86", label: "Cancelled" },
   low: { c: "#718096", label: "Low" },
   medium: { c: "#5a6b10", label: "Medium" },
   high: { c: "#c8912f", label: "High" },

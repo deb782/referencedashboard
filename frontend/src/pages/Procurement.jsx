@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, CheckCircle2, XCircle, HelpCircle, FileText, Receipt, Paperclip, Upload, FileCheck2, Layers } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, XCircle, HelpCircle, FileText, Receipt, Paperclip, Upload, FileCheck2, Layers, Ban } from "lucide-react";
 import { api, apiError, fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, Modal, inr, inrShort } from "@/components/ui";
@@ -16,6 +16,9 @@ const REACHED = {
 function StageTrack({ status }) {
   if (status === "rejected") {
     return <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-bad"><XCircle className="w-3.5 h-3.5" /> Rejected</span>;
+  }
+  if (status === "cancelled") {
+    return <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink2"><Ban className="w-3.5 h-3.5" /> Cancelled</span>;
   }
   const reached = REACHED[status] ?? 0;
   return (
@@ -44,6 +47,7 @@ export default function Procurement() {
   const [poFor, setPoFor] = useState(null);
   const [msFor, setMsFor] = useState(null);
   const [resubFor, setResubFor] = useState(null);
+  const [cancelFor, setCancelFor] = useState(null);
 
   const load = async () => {
     const [r, p] = await Promise.all([api.get("/procurement"), api.get("/projects")]);
@@ -55,7 +59,7 @@ export default function Procurement() {
 
   const buckets = useMemo(() => ({
     active: rows.filter(r => ["pending_management", "management_clarification", "pending_admin", "pending_clarification", "approved", "po_issued"].includes(r.status)),
-    done: rows.filter(r => ["paid", "rejected"].includes(r.status)),
+    done: rows.filter(r => ["paid", "rejected", "cancelled"].includes(r.status)),
   }), [rows]);
 
   const subtitle = {
@@ -81,7 +85,7 @@ export default function Procurement() {
       <section className="space-y-4">
         <div className="overline">Active queue</div>
         <div className="panel overflow-hidden ag-rise">
-          <ProcTable rows={buckets.active} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} />
+          <ProcTable rows={buckets.active} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} />
         </div>
       </section>
 
@@ -89,7 +93,7 @@ export default function Procurement() {
         <section className="space-y-4">
           <div className="overline">History</div>
           <div className="panel overflow-hidden ag-rise">
-            <ProcTable rows={buckets.done} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} />
+            <ProcTable rows={buckets.done} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} />
           </div>
         </section>
       )}
@@ -100,11 +104,12 @@ export default function Procurement() {
       {msFor && <MilestoneDialog req={msFor} user={user} onClose={() => { setMsFor(null); load(); }}
                     onRefresh={async () => { const r = await api.get("/procurement"); setRows(r.data); return r.data.find(x => x.request_id === msFor.request_id); }} />}
       {resubFor && <ResubmitDialog req={resubFor} projName={projName} onClose={() => setResubFor(null)} onSaved={() => { setResubFor(null); load(); }} />}
+      {cancelFor && <CancelProcDialog req={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
     </div>
   );
 }
 
-function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit }) {
+function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onCancel }) {
   if (rows.length === 0) return <EmptyState icon={FileText} title="Nothing here" hint="Requests appear in this queue." />;
   const total = (r) => (r.milestones?.length
     ? r.milestones.reduce((s, m) => s + Number(m.amount || 0), 0)
@@ -123,7 +128,7 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit }) {
         </tr></thead>
         <tbody>
           {rows.map((r) => {
-            const notes = [r.notes && `Site Manager: ${r.notes}`, r.admin_note && `Admin: ${r.admin_note}`, r.mgmt_note && `Management: ${r.mgmt_note}`, r.accounts_note && `Accounts: ${r.accounts_note}`].filter(Boolean);
+            const notes = [r.notes && `Site Manager: ${r.notes}`, r.admin_note && `Admin: ${r.admin_note}`, r.mgmt_note && `Management: ${r.mgmt_note}`, r.accounts_note && `Accounts: ${r.accounts_note}`, r.cancel_reason && `Cancelled${r.cancelled_by_name ? ` by ${r.cancelled_by_name}` : ""}: ${r.cancel_reason}`].filter(Boolean);
             const milestones = r.milestones || [];
             const hasDetail = notes.length > 0 || milestones.length > 0;
             return (
@@ -177,8 +182,12 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit }) {
                     {can(user, "accounts", "admin") && ["po_issued", "paid"].includes(r.status) && (
                       <button onClick={() => onMs(r)} className="btn-primary text-xs py-1.5" data-testid={`ms-${r.request_id}`}><Layers className="w-3.5 h-3.5" /> Payment structure</button>
                     )}
+                    {user?.role === "admin" && !["paid", "rejected", "cancelled"].includes(r.status) && (
+                      <button onClick={() => onCancel(r)} className="btn-secondary text-xs py-1.5 text-bad" data-testid={`cancel-${r.request_id}`} title="Cancel this request"><Ban className="w-3.5 h-3.5" /> Cancel</button>
+                    )}
                     {!(user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status)) &&
                      !(user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status)) &&
+                     !(user?.role === "admin" && !["paid", "rejected", "cancelled"].includes(r.status)) &&
                      !(user?.role === "site_manager" && ["pending_clarification", "management_clarification"].includes(r.status)) &&
                      !(can(user, "accounts", "admin") && ["approved", "po_issued", "paid"].includes(r.status)) &&
                      <span className="text-xs text-ink2">—</span>}
@@ -376,6 +385,30 @@ function ResubmitDialog({ req, projName, onClose, onSaved }) {
     </Modal>
   );
 }
+
+function CancelProcDialog({ req, onClose, onSaved }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!reason.trim()) return toast.error("Please add a reason");
+    setBusy(true);
+    try {
+      await api.post(`/procurement/${req.request_id}/cancel`, { reason });
+      toast.success("Request cancelled");
+      onSaved();
+    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Cancel procurement request" subtitle={req.subject} onClose={onClose}
+      footer={<><button onClick={onClose} className="btn-secondary">Keep request</button>
+        <button onClick={save} disabled={busy} className="btn-primary bg-bad border-bad" data-testid="cancel-submit">{busy ? "Cancelling…" : "Cancel request"}</button></>}>
+      <p className="text-sm text-ink2 mb-4">This marks the request as cancelled and keeps the reason on record. The site manager and accounts are notified.</p>
+      <label className="label">Reason <span className="text-bad">*</span></label>
+      <textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} className="input" data-testid="cancel-reason" placeholder="e.g. Raised in error / duplicate request" />
+    </Modal>
+  );
+}
+
 
 function ActionDialog({ req, onClose, onSaved }) {
   const [action, setAction] = useState("approve");

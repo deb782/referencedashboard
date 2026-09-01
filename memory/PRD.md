@@ -506,3 +506,11 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - Verified: testing_agent iteration_31 = backend 10/10 + full UI flow 100%, ZERO bugs (SM create with bifurcation mismatch submits; Admin sees SM notes; clarify→resubmit loop; Admin approve→Management→Accounts PO+note+tax invoice; docs/download 200). Pytest: /app/backend/tests/test_procurement_e2e.py. Preview DB cleaned (procurement=0); test users removed.
 - OPEN (optional, not requested): no admin DELETE /procurement/{id} endpoint; single-item bifurcation hint suppressed by design.
 - ACTION FOR USER: Redeploy to push to production. For the production attachment "server error": after redeploy, re-upload + open a PI/PO/Tax file on the LIVE app (preview files don't exist in prod storage). If it still errors on prod only, it likely needs Emergent Support (cross-environment object storage).
+
+---
+## PHASE 36 · Admin cancel procurement request (2026-06)
+- User ask: admin action to cancel a procurement request raised in error, with a short reason kept on record.
+- Backend (server.py): POST /api/procurement/{id}/cancel (admin only, ProcCancel{reason}) — reason required (400 if blank), 400 if already cancelled; sets status="cancelled" + cancel_reason/cancelled_by/cancelled_by_name/cancelled_at; notifies the requester + accounts. Added "cancelled" to the ProcurementRequest status Literal.
+- Frontend (Procurement.jsx): admin "Cancel" button (data-testid cancel-<request_id>, Ban icon) on every non-terminal request (not paid/rejected/cancelled) → CancelProcDialog (data-testid cancel-reason / cancel-submit) requiring a reason. Cancelled requests fall into the History bucket; StageTrack shows a grey "Cancelled" chip; the cancel reason + who shows in the request notes. StatusPill: added cancelled (grey "Cancelled").
+- Verified: curl (400 no-reason, 200 with reason, 400 double-cancel) + screenshot (Cancel button in Action column + dialog opens). Preview procurement=0 after cleanup.
+- ACTION FOR USER: Redeploy to push to production.
