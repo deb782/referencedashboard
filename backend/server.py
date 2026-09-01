@@ -382,7 +382,10 @@ class ProcurementRequest(BaseModel):
     requested_at: str = Field(default_factory=now)
     pi_file: Optional[dict] = None          # Performa Invoice (site manager)
     po_file: Optional[dict] = None          # Purchase Order (accounts)
+    tax_invoice_file: Optional[dict] = None # Tax Invoice (site manager/accounts, PO stage)
+    pi_amount: float = 0                    # total PI value (site manager)
     po_number: Optional[str] = None
+    accounts_note: str = ""                 # Accounts comment back to site manager
     milestones: list = []                   # [{label,amount,due,status,paid_date,paid_amount,notes}]
     mgmt_action_by: Optional[str] = None
     mgmt_action_at: Optional[str] = None
@@ -2334,6 +2337,7 @@ async def create_procurement(
         items: str = Form(...),
         priority: str = Form("medium"),
         notes: str = Form(""),
+        pi_amount: float = Form(0),
         file: Optional[UploadFile] = File(None),
         user: User = Depends(require_roles("site_manager", "admin"))):
     if user.role == "site_manager" and user.project_id != project_id:
@@ -2348,7 +2352,8 @@ async def create_procurement(
     r = ProcurementRequest(
         project_id=project_id, subject=subject,
         items=[ProcurementItem(**i) for i in item_list],
-        priority=priority, notes=notes, requested_by=user.user_id, pi_file=pi_ref,
+        priority=priority, notes=notes, pi_amount=pi_amount,
+        requested_by=user.user_id, pi_file=pi_ref,
         status="pending_admin")
     await db.procurement.insert_one(r.model_dump())
     proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
@@ -2361,6 +2366,7 @@ async def create_procurement(
 @api.post("/procurement/{request_id}/po")
 async def issue_po(request_id: str,
                     po_number: str = Form(...),
+                    note: str = Form(""),
                     file: Optional[UploadFile] = File(None),
                     user: User = Depends(require_roles("accounts", "admin"))):
     doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
@@ -2370,12 +2376,64 @@ async def issue_po(request_id: str,
         raise HTTPException(400, "Only approved requests can get a PO")
     po_ref = await save_upload(file, "procurement/po", user.user_id) if file else doc.get("po_file")
     await db.procurement.update_one({"request_id": request_id}, {"$set": {
-        "status": "po_issued", "po_number": po_number, "po_file": po_ref}})
+        "status": "po_issued", "po_number": po_number, "po_file": po_ref, "accounts_note": note}})
     await notify(doc["requested_by"], "procurement_po",
-                 f"PO issued for '{doc['subject']}' · PO {po_number}", "/procurement")
+                 f"PO issued for '{doc['subject']}' · PO {po_number}"
+                 + (f" · Note: {note}" if note else ""), "/procurement")
     await notify_role("admin", "procurement_po",
                       f"PO {po_number} issued · {doc['subject']}", "/procurement")
     return {"ok": True, "status": "po_issued"}
+
+
+@api.post("/procurement/{request_id}/tax-invoice")
+async def upload_tax_invoice(request_id: str,
+                             file: UploadFile = File(...),
+                             user: User = Depends(require_roles("site_manager", "accounts", "admin"))):
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    if user.role == "site_manager" and doc.get("requested_by") != user.user_id:
+        raise HTTPException(403, "Not your request")
+    ref = await save_upload(file, "procurement/tax_invoice", user.user_id)
+    await db.procurement.update_one({"request_id": request_id}, {"$set": {"tax_invoice_file": ref}})
+    await notify_role("accounts", "procurement_tax_invoice",
+                      f"Tax invoice uploaded · {doc['subject']}", "/procurement")
+    await notify_role("admin", "procurement_tax_invoice",
+                      f"Tax invoice uploaded · {doc['subject']}", "/procurement")
+    return {"ok": True, "tax_invoice_file": ref}
+
+
+@api.post("/procurement/{request_id}/resubmit-pi")
+async def resubmit_pi(request_id: str,
+                      notes: str = Form(""),
+                      pi_amount: float = Form(0),
+                      items: str = Form(""),
+                      file: Optional[UploadFile] = File(None),
+                      user: User = Depends(require_roles("site_manager", "admin"))):
+    """Site manager re-uploads a fresh PI after Admin asks for one (request stays open)."""
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    if user.role == "site_manager" and doc.get("requested_by") != user.user_id:
+        raise HTTPException(403, "Not your request")
+    if doc["status"] not in ("pending_clarification", "pending_admin", "management_clarification", "pending_management"):
+        raise HTTPException(400, "This request can no longer be revised")
+    upd = {"status": "pending_admin"}
+    if file:
+        upd["pi_file"] = await save_upload(file, "procurement/pi", user.user_id)
+    if notes:
+        upd["notes"] = notes
+    if pi_amount:
+        upd["pi_amount"] = pi_amount
+    if items:
+        try:
+            upd["items"] = [ProcurementItem(**i).model_dump() for i in json.loads(items)]
+        except Exception:
+            raise HTTPException(400, "Invalid items payload")
+    await db.procurement.update_one({"request_id": request_id}, {"$set": upd})
+    await notify_role("admin", "procurement_new",
+                      f"Revised PI submitted · {doc['subject']} — needs your approval", "/procurement")
+    return {"ok": True, "status": "pending_admin"}
 
 
 @api.post("/procurement/{request_id}/milestones")
@@ -2447,7 +2505,15 @@ async def download_file(file_id: str, authorization: str = Header(None),
     rec = await db.files.find_one({"file_id": file_id, "is_deleted": False}, {"_id": 0})
     if not rec:
         raise HTTPException(404, "File not found")
-    data, ctype = get_object(rec["storage_path"])
+    if not rec.get("storage_path"):
+        raise HTTPException(404, "This attachment has no stored file")
+    try:
+        data, ctype = get_object(rec["storage_path"])
+    except Exception as e:
+        log.warning("Attachment fetch failed for %s: %s", file_id, e)
+        raise HTTPException(404, "This attachment isn't available in this environment. "
+                                 "Files uploaded in preview are stored separately from production — "
+                                 "please re-upload it here.")
     return Response(content=data, media_type=rec.get("content_type", ctype),
                     headers={"Content-Disposition":
                              f'inline; filename="{rec.get("original_filename", "file")}"'})

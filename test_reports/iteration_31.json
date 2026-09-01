@@ -1,0 +1,21 @@
+{
+  "summary": "Full end-to-end validation of the procurement workflow (backend + frontend). Backend pytest: 10/10 PASS covering SM create with bifurcation mismatch (submission succeeds), Admin sees SM notes+pi_amount+items, Admin clarify -> pending_clarification, SM resubmit-pi reopens as pending_admin with fresh pi_file, Admin approve routes to pending_management when a Management user is assigned, Mgmt approve -> approved, Accounts POST /po (po_number+note+file) -> po_issued with accounts_note persisted, tax-invoice upload persists tax_invoice_file, milestones create+pay -> paid (paid_amount=161200), and GET /api/files/{id}/download returns 200 for freshly uploaded PI v2 / PO / Tax files. Frontend Playwright: SM creates PI with intentional bifurcation mismatch and the proc-bif-hint shows delta text 'under PI amount by ₹10,000 (you can still submit)' AND submit succeeds (row appears). Admin Review dialog shows review-sm-notes with SM note, PI amount, and both items. Admin clarify triggers pending_clarification and SM sees resubmit-<request_id> 'Upload new PI' button. ResubmitDialog shows resubmit-ask-note with Admin's clarification note, prefills items, accepts new PI file + revised items + pi_amount, and reopens the request. Admin approve routes to Management (mgmt-review button visible for the Management user). Mgmt approve -> Accounts issues PO via po-submit with po-note + po-tax-file. Documents column renders pi-link/po-link/tax-link testids; tax-invoice download URL (embedded token) returns HTTP 200 both with Bearer header and via href token param. Accounts note + PO number render in the row detail. StageTrack progresses correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_procurement_e2e.py",
+    "/app/test_reports/pytest/procurement_e2e.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py: There is no admin delete endpoint for a procurement request. If a request is created in error there's no supported way to remove it via API — currently required a direct Mongo delete to clean up test artefacts. Consider adding DELETE /api/procurement/{id} for admin or a soft-cancel action.",
+    "Procurement.jsx (line 200-203): bifOff logic is `items.length > 1 && Math.abs(itemsSum - piAmt) >= 1`. If a user has a SINGLE item whose extended cost != pi_amount, no soft warning is shown at all. Consider dropping the >1 guard so single-item PIs also surface the mismatch hint (still non-blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/test_procurement_e2e.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% (all wired testids + soft-bifurcation submission + resubmit loop + docs/download verified)"},
+  "test_credentials": "Admin 9513242807/Repro@123, Accounts 9000000002/Pass@123 (existing). Test-only users 9000000094 (site_manager, CVF) / 9000000093 (management, CVF, procurement perm) — both initial password = phone number, reset to Pass@1234; both deleted at end of run.",
+  "seed_data_creation": "One TEST procurement request 'TEST UI Procurement Flow' on CVF (proj_01d7e89ba838) + three uploaded files (pi/po/tax). Test users and the test procurement doc were removed after tests; procurement collection count = 0 post-cleanup (uploaded file blobs retained but unreferenced — harmless).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Procurement E2E is fully green (backend 10/10 + full UI flow). Pytest lives at /app/backend/tests/test_procurement_e2e.py and can be re-run with `pytest backend/tests/test_procurement_e2e.py -v`. No admin delete-procurement endpoint exists; use Mongo directly if a leftover TEST-prefixed row appears. bifurcation soft-hint is only surfaced when items.length > 1 — flagged as a minor UX suggestion."
+}

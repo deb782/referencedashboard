@@ -43,6 +43,7 @@ export default function Procurement() {
   const [actionFor, setActionFor] = useState(null);
   const [poFor, setPoFor] = useState(null);
   const [msFor, setMsFor] = useState(null);
+  const [resubFor, setResubFor] = useState(null);
 
   const load = async () => {
     const [r, p] = await Promise.all([api.get("/procurement"), api.get("/projects")]);
@@ -80,7 +81,7 @@ export default function Procurement() {
       <section className="space-y-4">
         <div className="overline">Active queue</div>
         <div className="panel overflow-hidden ag-rise">
-          <ProcTable rows={buckets.active} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} />
+          <ProcTable rows={buckets.active} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} />
         </div>
       </section>
 
@@ -88,7 +89,7 @@ export default function Procurement() {
         <section className="space-y-4">
           <div className="overline">History</div>
           <div className="panel overflow-hidden ag-rise">
-            <ProcTable rows={buckets.done} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} />
+            <ProcTable rows={buckets.done} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} />
           </div>
         </section>
       )}
@@ -98,11 +99,12 @@ export default function Procurement() {
       {poFor && <PoDialog req={poFor} onClose={() => setPoFor(null)} onSaved={() => { setPoFor(null); load(); }} />}
       {msFor && <MilestoneDialog req={msFor} user={user} onClose={() => { setMsFor(null); load(); }}
                     onRefresh={async () => { const r = await api.get("/procurement"); setRows(r.data); return r.data.find(x => x.request_id === msFor.request_id); }} />}
+      {resubFor && <ResubmitDialog req={resubFor} projName={projName} onClose={() => setResubFor(null)} onSaved={() => { setResubFor(null); load(); }} />}
     </div>
   );
 }
 
-function ProcTable({ rows, projName, user, onAction, onPo, onMs }) {
+function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit }) {
   if (rows.length === 0) return <EmptyState icon={FileText} title="Nothing here" hint="Requests appear in this queue." />;
   const total = (r) => (r.milestones?.length
     ? r.milestones.reduce((s, m) => s + Number(m.amount || 0), 0)
@@ -121,7 +123,7 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs }) {
         </tr></thead>
         <tbody>
           {rows.map((r) => {
-            const notes = [r.admin_note && `Admin: ${r.admin_note}`, r.mgmt_note && `Management: ${r.mgmt_note}`].filter(Boolean);
+            const notes = [r.notes && `Site Manager: ${r.notes}`, r.admin_note && `Admin: ${r.admin_note}`, r.mgmt_note && `Management: ${r.mgmt_note}`, r.accounts_note && `Accounts: ${r.accounts_note}`].filter(Boolean);
             const milestones = r.milestones || [];
             const hasDetail = notes.length > 0 || milestones.length > 0;
             return (
@@ -154,7 +156,8 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs }) {
                   <div className="flex flex-col gap-1.5">
                     {r.pi_file && <a href={fileUrl(r.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Performa Invoice</a>}
                     {r.po_file && <a href={fileUrl(r.po_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`po-link-${r.request_id}`}><FileCheck2 className="w-3.5 h-3.5" /> Purchase Order</a>}
-                    {!r.pi_file && !r.po_file && <span className="text-xs text-ink2">—</span>}
+                    {r.tax_invoice_file && <a href={fileUrl(r.tax_invoice_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`tax-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Tax Invoice</a>}
+                    {!r.pi_file && !r.po_file && !r.tax_invoice_file && <span className="text-xs text-ink2">—</span>}
                   </div>
                 </td>
                 <td className="td text-right whitespace-nowrap">
@@ -165,6 +168,9 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs }) {
                     {user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status) && (
                       <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`review-${r.request_id}`}>Review</button>
                     )}
+                    {user?.role === "site_manager" && ["pending_clarification", "management_clarification"].includes(r.status) && (
+                      <button onClick={() => onResubmit(r)} className="btn-primary text-xs py-1.5" data-testid={`resubmit-${r.request_id}`}><Upload className="w-3.5 h-3.5" /> Upload new PI</button>
+                    )}
                     {can(user, "accounts", "admin") && r.status === "approved" && (
                       <button onClick={() => onPo(r)} className="btn-primary text-xs py-1.5" data-testid={`po-${r.request_id}`}><Upload className="w-3.5 h-3.5" /> Issue PO</button>
                     )}
@@ -173,6 +179,7 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs }) {
                     )}
                     {!(user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status)) &&
                      !(user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status)) &&
+                     !(user?.role === "site_manager" && ["pending_clarification", "management_clarification"].includes(r.status)) &&
                      !(can(user, "accounts", "admin") && ["approved", "po_issued", "paid"].includes(r.status)) &&
                      <span className="text-xs text-ink2">—</span>}
                   </div>
@@ -187,10 +194,13 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs }) {
 }
 
 function NewProcurement({ projects, user, onClose, onSaved }) {
-  const [form, setForm] = useState({ project_id: user?.project_id || projects[0]?.project_id || "", subject: "", priority: "medium", notes: "" });
+  const [form, setForm] = useState({ project_id: user?.project_id || projects[0]?.project_id || "", subject: "", priority: "medium", notes: "", pi_amount: "" });
   const [items, setItems] = useState([{ name: "", quantity: 1, unit: "pcs", est_cost: 0, notes: "" }]);
   const [pi, setPi] = useState(null);
   const [busy, setBusy] = useState(false);
+  const itemsSum = items.reduce((s, i) => s + Number(i.est_cost || 0) * Number(i.quantity || 0), 0);
+  const piAmt = Number(form.pi_amount || 0);
+  const bifOff = piAmt > 0 && items.length > 1 && Math.abs(itemsSum - piAmt) >= 1;
 
   const addRow = () => setItems([...items, { name: "", quantity: 1, unit: "pcs", est_cost: 0, notes: "" }]);
   const rmRow = (i) => setItems(items.filter((_, idx) => idx !== i));
@@ -206,6 +216,7 @@ function NewProcurement({ projects, user, onClose, onSaved }) {
       const fd = new FormData();
       fd.append("project_id", form.project_id); fd.append("subject", form.subject);
       fd.append("priority", form.priority); fd.append("notes", form.notes);
+      fd.append("pi_amount", piAmt || itemsSum);
       fd.append("items", JSON.stringify(valid.map(i => ({ ...i, quantity: Number(i.quantity), est_cost: Number(i.est_cost || 0) }))));
       if (pi) fd.append("file", pi);
       await api.post("/procurement", fd, { headers: { "Content-Type": "multipart/form-data" } });
@@ -232,7 +243,16 @@ function NewProcurement({ projects, user, onClose, onSaved }) {
       <div className="mt-4"><label className="label">Subject *</label>
         <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} className="input" placeholder="e.g. Cement + steel for phase 2" data-testid="proc-subject" /></div>
       <div className="mt-4"><label className="label">Notes</label>
-        <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input" /></div>
+        <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input" data-testid="proc-notes" /></div>
+
+      <div className="mt-4"><label className="label">PI amount (₹)</label>
+        <input type="number" value={form.pi_amount} onChange={(e) => setForm({ ...form, pi_amount: e.target.value })} className="input font-mono-num" placeholder="Total value of this Performa Invoice" data-testid="proc-pi-amount" />
+        {piAmt > 0 && items.length > 1 && (
+          <div className={`text-[11px] mt-1 font-mono-num ${bifOff ? "text-clay" : "text-ok"}`} data-testid="proc-bif-hint">
+            Bifurcated across {items.length} items: {inr(itemsSum)} {bifOff ? `· ${itemsSum > piAmt ? "over" : "under"} PI amount by ${inr(Math.abs(itemsSum - piAmt))} (you can still submit)` : "· matches PI amount ✓"}
+          </div>
+        )}
+      </div>
 
       <div className="mt-4">
         <label className="label">Performa Invoice (PDF/image)</label>
@@ -258,6 +278,92 @@ function NewProcurement({ projects, user, onClose, onSaved }) {
                 <tr key={i} className="border-b border-line last:border-0">
                   <td className="px-2 py-2"><input value={it.name} onChange={(e) => updRow(i, { name: e.target.value })} className="input" data-testid={`proc-name-${i}`} /></td>
                   <td className="px-2 py-2"><input type="number" value={it.quantity} onChange={(e) => updRow(i, { quantity: e.target.value })} className="input text-right w-20 font-mono-num" data-testid={`proc-qty-${i}`} /></td>
+                  <td className="px-2 py-2"><input value={it.unit} onChange={(e) => updRow(i, { unit: e.target.value })} className="input w-20" /></td>
+                  <td className="px-2 py-2"><input type="number" value={it.est_cost} onChange={(e) => updRow(i, { est_cost: e.target.value })} className="input text-right w-28 font-mono-num" /></td>
+                  <td className="px-2 py-2">{items.length > 1 && <button onClick={() => rmRow(i)} className="text-bad"><Trash2 className="w-4 h-4" /></button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ResubmitDialog({ req, projName, onClose, onSaved }) {
+  const [notes, setNotes] = useState(req.notes || "");
+  const [piAmount, setPiAmount] = useState(req.pi_amount || "");
+  const [items, setItems] = useState((req.items || []).length ? req.items.map(i => ({ ...i })) : [{ name: "", quantity: 1, unit: "pcs", est_cost: 0, notes: "" }]);
+  const [pi, setPi] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const itemsSum = items.reduce((s, i) => s + Number(i.est_cost || 0) * Number(i.quantity || 0), 0);
+  const piAmt = Number(piAmount || 0);
+  const bifOff = piAmt > 0 && items.length > 1 && Math.abs(itemsSum - piAmt) >= 1;
+  const askNote = req.admin_note || req.mgmt_note || "";
+
+  const addRow = () => setItems([...items, { name: "", quantity: 1, unit: "pcs", est_cost: 0, notes: "" }]);
+  const rmRow = (i) => setItems(items.filter((_, idx) => idx !== i));
+  const updRow = (i, patch) => setItems(items.map((it, idx) => idx === i ? { ...it, ...patch } : it));
+
+  const save = async () => {
+    const valid = items.filter(i => i.name.trim() && Number(i.quantity) > 0);
+    if (valid.length === 0) return toast.error("Add at least one item");
+    if (!pi && !req.pi_file) return toast.error("Attach a Performa Invoice");
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("notes", notes);
+      fd.append("pi_amount", piAmt || itemsSum);
+      fd.append("items", JSON.stringify(valid.map(i => ({ ...i, quantity: Number(i.quantity), est_cost: Number(i.est_cost || 0) }))));
+      if (pi) fd.append("file", pi);
+      await api.post(`/procurement/${req.request_id}/resubmit-pi`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("New PI submitted — admin notified");
+      onSaved();
+    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal size="xl" title="Upload a new PI" subtitle={`${req.subject} · ${projName(req.project_id)}`} onClose={onClose}
+      footer={<><button onClick={onClose} className="btn-secondary">Cancel</button>
+        <button onClick={save} disabled={busy} className="btn-primary" data-testid="resubmit-submit">{busy ? "Submitting…" : "Submit new PI"}</button></>}>
+      {askNote && <div className="bg-clay/5 border border-clay/20 rounded-md p-3 mb-4 text-sm text-ink" data-testid="resubmit-ask-note"><span className="overline text-clay">What was asked</span><div className="mt-1">{askNote}</div></div>}
+      <div className="mt-1"><label className="label">Notes to admin</label>
+        <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className="input" data-testid="resubmit-notes" /></div>
+
+      <div className="mt-4"><label className="label">PI amount (₹)</label>
+        <input type="number" value={piAmount} onChange={(e) => setPiAmount(e.target.value)} className="input font-mono-num" placeholder="Total value of this Performa Invoice" data-testid="resubmit-pi-amount" />
+        {piAmt > 0 && items.length > 1 && (
+          <div className={`text-[11px] mt-1 font-mono-num ${bifOff ? "text-clay" : "text-ok"}`} data-testid="resubmit-bif-hint">
+            Bifurcated across {items.length} items: {inr(itemsSum)} {bifOff ? `· ${itemsSum > piAmt ? "over" : "under"} PI amount by ${inr(Math.abs(itemsSum - piAmt))} (you can still submit)` : "· matches PI amount ✓"}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <label className="label">New Performa Invoice (PDF/image)</label>
+        <label className="flex items-center gap-2 border border-dashed border-line rounded-md px-4 py-3 cursor-pointer hover:border-brand transition-colors duration-300" data-testid="resubmit-pi-drop">
+          <Paperclip className="w-4 h-4 text-ink2" />
+          <span className="text-sm text-ink2">{pi ? pi.name : (req.pi_file ? "Attach a new PI (replaces the old one)" : "Attach the Performa Invoice")}</span>
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden onChange={(e) => setPi(e.target.files?.[0] || null)} data-testid="resubmit-pi-file" />
+        </label>
+      </div>
+
+      <div className="mt-5">
+        <div className="flex justify-between items-center mb-2">
+          <div className="overline text-ink">Items</div>
+          <button onClick={addRow} className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid="resubmit-add-item"><Plus className="w-3.5 h-3.5" /> Add row</button>
+        </div>
+        <div className="border border-line rounded-md overflow-hidden">
+          <div className="overflow-x-auto"><table className="w-full">
+            <thead><tr className="bg-surfacealt/60 border-b border-line">
+              <th className="th py-2">Name</th><th className="th py-2 text-right">Qty</th><th className="th py-2">Unit</th><th className="th py-2 text-right">Est. cost/unit</th><th></th>
+            </tr></thead>
+            <tbody>
+              {items.map((it, i) => (
+                <tr key={i} className="border-b border-line last:border-0">
+                  <td className="px-2 py-2"><input value={it.name} onChange={(e) => updRow(i, { name: e.target.value })} className="input" data-testid={`resubmit-name-${i}`} /></td>
+                  <td className="px-2 py-2"><input type="number" value={it.quantity} onChange={(e) => updRow(i, { quantity: e.target.value })} className="input text-right w-20 font-mono-num" data-testid={`resubmit-qty-${i}`} /></td>
                   <td className="px-2 py-2"><input value={it.unit} onChange={(e) => updRow(i, { unit: e.target.value })} className="input w-20" /></td>
                   <td className="px-2 py-2"><input type="number" value={it.est_cost} onChange={(e) => updRow(i, { est_cost: e.target.value })} className="input text-right w-28 font-mono-num" /></td>
                   <td className="px-2 py-2">{items.length > 1 && <button onClick={() => rmRow(i)} className="text-bad"><Trash2 className="w-4 h-4" /></button>}</td>
@@ -298,8 +404,10 @@ function ActionDialog({ req, onClose, onSaved }) {
         <button onClick={save} disabled={busy} className="btn-primary" data-testid="act-submit">{busy ? "Saving…" : "Confirm decision"}</button></>}>
       <div className="mb-4"><StageTrack status={req.status} /></div>
       {req.pi_file && <a href={fileUrl(req.pi_file.file_id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-brand mb-4"><Paperclip className="w-4 h-4" /> View Performa Invoice</a>}
+      {req.pi_amount > 0 && <div className="text-sm mb-2">PI amount: <span className="font-mono-num font-semibold">{inr(req.pi_amount)}</span></div>}
+      {req.notes && <div className="bg-clay/5 border border-clay/20 rounded-md p-3 mb-4 text-sm text-ink" data-testid="review-sm-notes"><span className="overline text-clay">Site manager note</span><div className="mt-1">{req.notes}</div></div>}
       <div className="bg-surfacealt/60 border border-line rounded-md p-3 space-y-1 mb-4">
-        {(req.items || []).map((i, idx) => <div key={idx} className="text-xs text-ink2">• {i.name} — <span className="font-mono-num">{i.quantity} {i.unit}</span> @ <span className="font-mono-num">{inr(i.est_cost)}</span></div>)}
+        {(req.items || []).map((i, idx) => <div key={idx} className="text-xs text-ink2">• {i.name} — <span className="font-mono-num">{i.quantity} {i.unit}</span> @ <span className="font-mono-num">{inr(i.est_cost)}</span>{i.notes ? <span className="text-clay"> · {i.notes}</span> : ""}</div>)}
       </div>
       <label className="label">Decision</label>
       <div className="grid grid-cols-3 gap-2">
@@ -316,6 +424,8 @@ function ActionDialog({ req, onClose, onSaved }) {
 function PoDialog({ req, onClose, onSaved }) {
   const [poNumber, setPoNumber] = useState(req.po_number || "");
   const [po, setPo] = useState(null);
+  const [tax, setTax] = useState(null);
+  const [note, setNote] = useState(req.accounts_note || "");
   const [busy, setBusy] = useState(false);
   const save = async () => {
     if (!poNumber.trim()) return toast.error("PO number is required");
@@ -323,8 +433,13 @@ function PoDialog({ req, onClose, onSaved }) {
     try {
       const fd = new FormData();
       fd.append("po_number", poNumber);
+      fd.append("note", note);
       if (po) fd.append("file", po);
       await api.post(`/procurement/${req.request_id}/po`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      if (tax) {
+        const tf = new FormData(); tf.append("file", tax);
+        await api.post(`/procurement/${req.request_id}/tax-invoice`, tf, { headers: { "Content-Type": "multipart/form-data" } });
+      }
       toast.success("PO issued — site manager notified");
       onSaved();
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
@@ -342,6 +457,15 @@ function PoDialog({ req, onClose, onSaved }) {
           <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden onChange={(e) => setPo(e.target.files?.[0] || null)} data-testid="po-file" />
         </label>
       </div>
+      <div className="mt-4"><label className="label">Tax invoice (optional)</label>
+        <label className="flex items-center gap-2 border border-dashed border-line rounded-md px-4 py-3 cursor-pointer hover:border-brand transition-colors duration-300" data-testid="po-tax-drop">
+          <Paperclip className="w-4 h-4 text-ink2" />
+          <span className="text-sm text-ink2">{tax ? tax.name : "Attach a tax invoice"}</span>
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden onChange={(e) => setTax(e.target.files?.[0] || null)} data-testid="po-tax-file" />
+        </label>
+      </div>
+      <div className="mt-4"><label className="label">Comment to site manager (optional)</label>
+        <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} className="input" data-testid="po-note" placeholder="Anything to be incorporated by the site manager" /></div>
     </Modal>
   );
 }
