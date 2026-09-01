@@ -2532,7 +2532,9 @@ async def download_file(file_id: str, authorization: str = Header(None),
         if e.status in (402, 403):
             raise HTTPException(503, "File storage is temporarily unavailable for this account "
                                      "(billing/key). Please contact the administrator.")
-        raise HTTPException(503, "File storage is temporarily unavailable. Please try again shortly.")
+        raise HTTPException(502, "This file could not be retrieved from storage. It may have been "
+                                 "removed and needs to be re-uploaded, or storage is temporarily "
+                                 "unavailable — please try again shortly.")
     except Exception as e:
         log.error("Attachment fetch crashed file=%s path=%s err=%s",
                   file_id, rec.get("storage_path"), e)
