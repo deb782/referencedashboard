@@ -25,7 +25,8 @@ from fastapi import (
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+from bson import ObjectId
 from openpyxl import load_workbook
 from pymongo import InsertOne, UpdateOne
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -45,6 +46,7 @@ ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@agrocorp.local")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+fs_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="uploads")
 
 # ---------------------------------------------------------- object storage -
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
@@ -109,14 +111,17 @@ def get_object(path: str) -> tuple:
 async def save_upload(file: UploadFile, folder: str, user_id: str) -> dict:
     ext = (file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "bin")
     file_id = new_id("file")
-    path = f"{APP_NAME}/{folder}/{user_id}/{file_id}.{ext}"
     data = await file.read()
     ctype = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
-    result = put_object(path, data, ctype)
+    # Store the bytes in MongoDB via GridFS (durable, replica-safe, works in prod).
+    gid = await fs_bucket.upload_from_stream(
+        f"{file_id}.{ext}", data,
+        metadata={"file_id": file_id, "content_type": ctype, "folder": folder,
+                  "uploaded_by": user_id, "original_filename": file.filename})
     ref = {
-        "file_id": file_id, "storage_path": result["path"],
+        "file_id": file_id, "gridfs_id": str(gid), "storage_backend": "gridfs",
         "original_filename": file.filename, "content_type": ctype,
-        "size": result.get("size", len(data)), "uploaded_by": user_id,
+        "size": len(data), "uploaded_by": user_id,
         "uploaded_at": now(), "is_deleted": False,
     }
     await db.files.insert_one({**ref})
@@ -391,6 +396,7 @@ class ProcurementRequest(BaseModel):
     requested_by: str
     requested_at: str = Field(default_factory=now)
     pi_file: Optional[dict] = None          # Performa Invoice (site manager)
+    pi_history: List[dict] = []             # previously rejected/replaced PIs
     po_file: Optional[dict] = None          # Purchase Order (accounts)
     tax_invoice_file: Optional[dict] = None # Tax Invoice (site manager/accounts, PO stage)
     pi_amount: float = 0                    # total PI value (site manager)
@@ -400,6 +406,7 @@ class ProcurementRequest(BaseModel):
     mgmt_action_by: Optional[str] = None
     mgmt_action_at: Optional[str] = None
     mgmt_note: str = ""
+    mgmt_decision: Optional[str] = None
     admin_action_by: Optional[str] = None
     admin_action_at: Optional[str] = None
     admin_note: str = ""
@@ -2424,15 +2431,30 @@ async def resubmit_pi(request_id: str,
                       items: str = Form(""),
                       file: Optional[UploadFile] = File(None),
                       user: User = Depends(require_roles("site_manager", "admin"))):
-    """Site manager re-uploads a fresh PI after Admin asks for one (request stays open)."""
+    """Site manager re-uploads a fresh PI after Admin asks for one or rejects it (request stays open)."""
     doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Request not found")
     if user.role == "site_manager" and doc.get("requested_by") != user.user_id:
         raise HTTPException(403, "Not your request")
-    if doc["status"] not in ("pending_clarification", "pending_admin", "management_clarification", "pending_management"):
+    if doc["status"] not in ("pending_clarification", "pending_admin", "management_clarification",
+                             "pending_management", "rejected"):
         raise HTTPException(400, "This request can no longer be revised")
     upd = {"status": "pending_admin"}
+    push = None
+    # Archive the current PI (and the reason it was rejected/returned) so admins can
+    # always review previously rejected documents, even after a later version is approved.
+    if file and doc.get("pi_file"):
+        push = {"pi_history": {
+            "pi_file": doc["pi_file"],
+            "pi_amount": doc.get("pi_amount"),
+            "items": doc.get("items", []),
+            "notes": doc.get("notes", ""),
+            "outcome": doc["status"],
+            "admin_note": doc.get("admin_note", ""),
+            "mgmt_note": doc.get("mgmt_note", ""),
+            "archived_at": now(),
+        }}
     if file:
         upd["pi_file"] = await save_upload(file, "procurement/pi", user.user_id)
     if notes:
@@ -2444,7 +2466,10 @@ async def resubmit_pi(request_id: str,
             upd["items"] = [ProcurementItem(**i).model_dump() for i in json.loads(items)]
         except Exception:
             raise HTTPException(400, "Invalid items payload")
-    await db.procurement.update_one({"request_id": request_id}, {"$set": upd})
+    mongo_update = {"$set": upd}
+    if push:
+        mongo_update["$push"] = push
+    await db.procurement.update_one({"request_id": request_id}, mongo_update)
     await notify_role("admin", "procurement_new",
                       f"Revised PI submitted · {doc['subject']} — needs your approval", "/procurement")
     return {"ok": True, "status": "pending_admin"}
@@ -2519,29 +2544,40 @@ async def download_file(file_id: str, authorization: str = Header(None),
     rec = await db.files.find_one({"file_id": file_id, "is_deleted": False}, {"_id": 0})
     if not rec:
         raise HTTPException(404, "File not found")
+    fname = rec.get("original_filename") or "file"
+    ctype = rec.get("content_type", "application/octet-stream")
+
+    # New files live in MongoDB GridFS.
+    if rec.get("gridfs_id"):
+        try:
+            stream = await fs_bucket.open_download_stream(ObjectId(rec["gridfs_id"]))
+            data = await stream.read()
+        except Exception as e:
+            log.error("GridFS read failed file=%s gid=%s err=%s", file_id, rec.get("gridfs_id"), e)
+            raise HTTPException(404, "This file could not be read. Please re-upload it and try again.")
+        return Response(content=data, media_type=ctype,
+                        headers={"Content-Disposition": f'inline; filename="{fname}"'})
+
+    # Legacy files stored in the external object-storage service.
     if not rec.get("storage_path"):
-        raise HTTPException(404, "This attachment has no stored file")
+        raise HTTPException(404, "This attachment has no stored file. Please re-upload it.")
     try:
-        data, ctype = get_object(rec["storage_path"])
+        data, octype = get_object(rec["storage_path"])
     except StorageError as e:
         log.error("Attachment fetch failed file=%s path=%s status=%s body=%s",
                   file_id, rec.get("storage_path"), e.status, e.body[:300])
-        if e.status == 404:
-            raise HTTPException(404, "This file is no longer available in storage. "
-                                     "Please re-upload it and try again.")
         if e.status in (402, 403):
             raise HTTPException(503, "File storage is temporarily unavailable for this account "
                                      "(billing/key). Please contact the administrator.")
-        raise HTTPException(502, "This file could not be retrieved from storage. It may have been "
-                                 "removed and needs to be re-uploaded, or storage is temporarily "
-                                 "unavailable — please try again shortly.")
+        raise HTTPException(502, "This file was uploaded on the old storage and can no longer be "
+                                 "retrieved. Please re-upload it — new uploads are stored reliably.")
     except Exception as e:
         log.error("Attachment fetch crashed file=%s path=%s err=%s",
                   file_id, rec.get("storage_path"), e)
-        raise HTTPException(503, "Could not retrieve this file right now. Please try again shortly.")
-    return Response(content=data, media_type=rec.get("content_type", ctype),
-                    headers={"Content-Disposition":
-                             f'inline; filename="{rec.get("original_filename", "file")}"'})
+        raise HTTPException(502, "This file was uploaded on the old storage and can no longer be "
+                                 "retrieved. Please re-upload it.")
+    return Response(content=data, media_type=ctype,
+                    headers={"Content-Disposition": f'inline; filename="{fname}"'})
 
 
 @api.post("/procurement/{request_id}/action")
@@ -2554,10 +2590,12 @@ async def admin_action_procurement(request_id: str, payload: AdminAction,
         raise HTTPException(400, f"Cannot act on request in status {doc['status']}")
     mgmt = None
     if payload.action == "approve":
+        # New flow: Admin approval sends the request straight to Accounts.
+        # Management is notified for parallel (optional, non-gating) review.
         mgmt = await db.users.find_one(
             {"role": "management", "project_id": doc["project_id"], "is_active": True},
             {"_id": 0, "user_id": 1})
-        new_status = "pending_management" if mgmt else "approved"
+        new_status = "approved"
     elif payload.action == "reject":
         new_status = "rejected"
     else:
@@ -2574,14 +2612,14 @@ async def admin_action_procurement(request_id: str, payload: AdminAction,
     await notify(doc["requested_by"], f"procurement_{payload.action}",
                  msg, "/procurement")
     proj = await db.projects.find_one({"project_id": doc["project_id"]}, {"_id": 0}) or {}
-    if new_status == "pending_management" and mgmt:
-        await notify(mgmt["user_id"], "procurement_new",
-                     f"Procurement request · {doc['subject']} · {proj.get('name','')} — "
-                     f"admin approved, needs your approval", "/procurement")
-    elif new_status == "approved":
+    if new_status == "approved":
         await notify_role("accounts", "procurement_approved",
                           f"Approved procurement ready for PO/payment · "
                           f"{doc['subject']}", "/procurement")
+        if mgmt:
+            await notify(mgmt["user_id"], "procurement_new",
+                         f"Procurement request · {doc['subject']} · {proj.get('name','')} — "
+                         f"admin approved (your review is optional)", "/procurement")
     return {"ok": True, "status": new_status}
 
 
@@ -2594,19 +2632,15 @@ async def mgmt_action_procurement(request_id: str, payload: MgmtAction,
         raise HTTPException(404, "Request not found")
     if user.project_id and doc["project_id"] != user.project_id:
         raise HTTPException(403, "Project not in your scope")
-    if doc["status"] not in ("pending_management", "management_clarification"):
-        raise HTTPException(400, f"Cannot act on request in status {doc['status']}")
+    # Management review is OPTIONAL and PARALLEL — it records an endorsement/comment
+    # but never changes the workflow status (it does not gate the flow to Accounts).
+    if doc["status"] in ("rejected", "cancelled"):
+        raise HTTPException(400, f"Cannot review a {doc['status']} request")
     if payload.action != "approve" and not payload.note.strip():
         raise HTTPException(400, "A note is required for reject / clarification")
-    if payload.action == "approve":
-        new_status = "approved"
-    elif payload.action == "reject":
-        new_status = "rejected"
-    else:
-        new_status = "management_clarification"
     await db.procurement.update_one(
         {"request_id": request_id},
-        {"$set": {"status": new_status,
+        {"$set": {"mgmt_decision": payload.action,
                   "mgmt_action_by": user.user_id,
                   "mgmt_action_at": now(),
                   "mgmt_note": payload.note}})
@@ -2614,11 +2648,8 @@ async def mgmt_action_procurement(request_id: str, payload: MgmtAction,
     if payload.note:
         msg += f" · {payload.note}"
     await notify(doc["requested_by"], f"procurement_mgmt_{payload.action}", msg, "/procurement")
-    if new_status == "approved":
-        await notify_role("accounts", "procurement_approved",
-                          f"Approved procurement ready for PO/payment · "
-                          f"{doc['subject']}", "/procurement")
-    return {"ok": True, "status": new_status}
+    await notify_role("admin", f"procurement_mgmt_{payload.action}", msg, "/procurement")
+    return {"ok": True, "status": doc["status"], "mgmt_decision": payload.action}
 
 
 @api.post("/procurement/{request_id}/cancel")
@@ -3277,7 +3308,8 @@ async def dashboard(user: User = Depends(get_current_user)):
         pid = user.project_id
         by_project, consolidated = await _projects_overview(pid)
         approvals = await db.procurement.find(
-            {"project_id": pid, "status": {"$in": ["pending_management", "management_clarification"]}},
+            {"project_id": pid, "status": {"$in": ["approved", "po_issued"]},
+             "mgmt_action_at": None},
             {"_id": 0}).sort("requested_at", -1).limit(10).to_list(10)
         recent_sales = await db.units.find(
             {"project_id": pid, "status": "sold"}, {"_id": 0}).sort("sold_at", -1).limit(6).to_list(6)
@@ -3295,7 +3327,8 @@ async def dashboard(user: User = Depends(get_current_user)):
                                         "label": m.get("label"), "amount": m.get("amount"),
                                         "due": m.get("due"), "status": m.get("status")})
         mgmt_pending = await db.procurement.count_documents(
-            {"project_id": pid, "status": {"$in": ["pending_management", "management_clarification"]}})
+            {"project_id": pid, "status": {"$in": ["approved", "po_issued"]},
+             "mgmt_action_at": None})
         proj = await db.projects.find_one({"project_id": pid}, {"_id": 0}) or {}
         base.update({
             "permissions": user.permissions or [],
@@ -3542,6 +3575,13 @@ async def startup():
     await _scrub_nonfinite_data()
     await _migrate_receipt_verification()
     await _migrate_cvf()
+    # Management no longer gates procurement — advance any requests parked at the
+    # old Management stage straight to Accounts-ready (admin already approved them).
+    r = await db.procurement.update_many(
+        {"status": {"$in": ["pending_management", "management_clarification"]}},
+        {"$set": {"status": "approved"}})
+    if r.modified_count:
+        log.info("Advanced %d procurement request(s) past the retired Management gate", r.modified_count)
     try:
         init_storage()
         log.info("Object storage initialised")

@@ -37,7 +37,7 @@ export default function ManagementDashboard({ stats, user }) {
           <div className="flex items-center gap-4">
             <div className="w-11 h-11 rounded-lg bg-clay/10 flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-clay" strokeWidth={1.5} /></div>
             <div>
-              <div className="overline">Awaiting your primary approval</div>
+              <div className="overline">Approved · optional review</div>
               <div className="kpi-value text-4xl mt-1 text-ink">{s.mgmt_approvals_pending ?? 0}</div>
             </div>
           </div>
@@ -60,9 +60,9 @@ export default function ManagementDashboard({ stats, user }) {
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {canProc && (
           <div className="panel">
-            <PanelHead title="Procurement · Needs Your Approval" to="/procurement" cta="Review all" />
+            <PanelHead title="Procurement · Optional Review" to="/procurement" cta="Review all" />
             {approvals.length === 0 ? (
-              <EmptyState icon={Package} title="Queue is clear" hint="No requests waiting on your primary approval." />
+              <EmptyState icon={Package} title="Queue is clear" hint="No admin-approved requests waiting on your optional review." />
             ) : (
               <div className="divide-y divide-line">
                 {approvals.map((p) => (

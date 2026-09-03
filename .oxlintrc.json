@@ -1,10 +1,30 @@
 {
+  "globals": {
+    "define": "readonly",
+    "module": "readonly",
+    "require": "readonly",
+    "exports": "readonly",
+    "self": "readonly",
+    "global": "readonly",
+    "globalThis": "readonly"
+  },
   "ignorePatterns": [
-    "node_modules",
     "**/node_modules/**",
+    "node_modules",
+    "frontend/node_modules",
     "frontend/node_modules/**",
+    "**/*.cjs",
+    "**/dist/**",
     "build",
     "dist",
     "coverage"
+  ],
+  "overrides": [
+    {
+      "files": ["**/*.cjs", "**/node_modules/**"],
+      "rules": {
+        "no-undef": "off"
+      }
+    }
   ]
 }

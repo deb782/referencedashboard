@@ -1,0 +1,30 @@
+{
+  "summary": "Validated end-to-end the new procurement workflow additions on top of iteration_32's baseline. Backend pytest suite extended to 13/13 PASS covering the full happy path + reject→resubmit loop + pi_history archival + old rejected file remains downloadable + no-history case. Frontend Playwright as Admin verified: 5 filter tabs (Active/Approved/Rejected/Cancelled/All) with correct counts and filtering; a request that went reject→resubmit→approve appears under the 'Approved' tab (not 'Rejected'); the '1 rejected doc' link (data-testid rejected-docs-<id>) is present ONLY on requests with pi_history; clicking it opens the 'Previously rejected documents' dialog (pi-history-list) showing 'Rejected · v1', amount, admin reason 'UI-TEST rejection: wrong vendor', item lines, and a 'View document' link (pi-history-link-0) pointing at /api/files/<old_fid>/download. Direct GET on that old file returns HTTP 200 + application/pdf (GridFS serving works for archived docs). On the 'All' tab exactly ONE rejected-docs button was visible (the seeded pi_history request) — confirming the conditional visibility rule. Backend tests also cover: GridFS storage/download for PI/PO/Tax, admin approve → 'approved' directly (bypasses management even with a mgmt user assigned to the project), mgmt-action never gates the flow, admin cancel with reason, and clarify→resubmit path. All created procurement docs, GridFS blobs, files rows, and test users cleaned up (db.procurement.count()=0).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Procurement StageTrack (carried over from iter_32)", "issues": ["po_issued still maps to reached=2 in REACHED (Procurement.jsx L10-14), same as 'approved' — Accounts stage remains 'active' visually after PO is issued. Suggest bumping po_issued to 3."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_procurement_e2e.py",
+    "/app/test_reports/pytest/procurement_e2e.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py resubmit_pi (~L2427-2475): pi_history archive is only pushed when a NEW file is included in the resubmit (`if file and doc.get('pi_file')`). If a site manager resubmits without changing the file, the rejection outcome is lost silently. Consider always pushing a history entry when transitioning from rejected/pending_clarification back to pending_admin (even without a new file, or reject the request in that case).",
+    "server.py resubmit_pi: original request status is copied into pi_history['outcome']. Good — history dialog uses this to show the 'Rejected · v1' pill.",
+    "HistoryDialog (Procurement.jsx): 'View document' link opens in a new tab with the JWT token as a query param (?token=...). Ensure the backend keeps this pattern secure (short-lived token as-is). Fine for now.",
+    "Procurement.jsx GROUPS.approved includes 'paid' but there is no 'paid' filter tab; rows in 'paid' state still surface under Approved — this is probably intended but worth confirming with product."
+  ],
+  "updated_files": ["/app/backend/tests/test_procurement_e2e.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (filter tabs, rejected-docs conditional, history dialog with reason + old file link 200, approved req not on Rejected tab)"},
+  "test_credentials": "Admin 9513242807/Repro@123, Accounts 9000000002/Pass@123. Ephemeral: site_manager 9000000094 (Pass@1234), management 9000000093 (Pass@1234) — created and deleted.",
+  "seed_data_creation": "Seed helper _seed_ui.py created a 'TEST UI Reject-Reupload' request (reject → resubmit → approve so pi_history has one entry) for the Playwright run, then removed. All TEST_ procurement docs + their GridFS blobs + file rows + test users deleted post-run. db.procurement.count()=0 verified.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Procurement iteration 33 fully green. To re-run backend: `export $(grep -v ^# /app/frontend/.env | xargs) && export $(grep -v ^# /app/backend/.env | xargs) && pytest /app/backend/tests/test_procurement_e2e.py -v`. Coverage: 13 tests including reject→resubmit reopening to pending_admin (test_9b), pi_history archived w/ admin reason + old file 200 (test_9c), no-pi_history on never-rejected requests (test_9d), plus GridFS storage, mgmt parallel non-gating, admin→approved routing, clarify path, cancel. Frontend seed pattern (create SM user → PI → admin reject → SM resubmit → admin approve) is in git history if needed.",
+  "rca of the issue": "N/A — all new features validated; no regressions."
+}

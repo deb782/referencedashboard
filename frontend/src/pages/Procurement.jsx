@@ -5,12 +5,12 @@ import { api, apiError, fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, Modal, inr, inrShort } from "@/components/ui";
 
-const STAGES = ["Site", "Admin", "Mgmt", "Accounts"];
+const STAGES = ["Site", "Admin", "Accounts"];
 // number of stages completed for a given status
 const REACHED = {
   pending_admin: 1, pending_clarification: 1,
   pending_management: 2, management_clarification: 2,
-  approved: 3, po_issued: 3, paid: 4,
+  approved: 2, po_issued: 3, paid: 3,
 };
 
 function StageTrack({ status }) {
@@ -48,6 +48,8 @@ export default function Procurement() {
   const [msFor, setMsFor] = useState(null);
   const [resubFor, setResubFor] = useState(null);
   const [cancelFor, setCancelFor] = useState(null);
+  const [histFor, setHistFor] = useState(null);
+  const [filter, setFilter] = useState("active");
 
   const load = async () => {
     const [r, p] = await Promise.all([api.get("/procurement"), api.get("/projects")]);
@@ -57,15 +59,32 @@ export default function Procurement() {
 
   const projName = (id) => projects.find(p => p.project_id === id)?.name || "—";
 
-  const buckets = useMemo(() => ({
-    active: rows.filter(r => ["pending_management", "management_clarification", "pending_admin", "pending_clarification", "approved", "po_issued"].includes(r.status)),
-    done: rows.filter(r => ["paid", "rejected", "cancelled"].includes(r.status)),
+  const GROUPS = {
+    active: ["pending_admin", "pending_clarification", "pending_management", "management_clarification", "approved", "po_issued"],
+    approved: ["approved", "po_issued", "paid"],
+    rejected: ["rejected"],
+    cancelled: ["cancelled"],
+  };
+  const counts = useMemo(() => ({
+    all: rows.length,
+    active: rows.filter(r => GROUPS.active.includes(r.status)).length,
+    approved: rows.filter(r => GROUPS.approved.includes(r.status)).length,
+    rejected: rows.filter(r => r.status === "rejected").length,
+    cancelled: rows.filter(r => r.status === "cancelled").length,
   }), [rows]);
+  const filtered = useMemo(() => (
+    filter === "all" ? rows : rows.filter(r => GROUPS[filter].includes(r.status))
+  ), [rows, filter]);
+
+  const TABS = [
+    ["active", "Active"], ["approved", "Approved"], ["rejected", "Rejected"],
+    ["cancelled", "Cancelled"], ["all", "All"],
+  ];
 
   const subtitle = {
-    site_manager: "Raise a request with a Performa Invoice → management & admin approve → accounts issue a PO you can download.",
-    management: "Give approval to admin-cleared procurement requests. Once you approve, accounts issue the PO and payment structure.",
-    admin: "Give the first approval to site requests. Approved requests move to Management, then Accounts for PO & payment.",
+    site_manager: "Raise a request with a Performa Invoice → admin approves → accounts issue a PO you can download.",
+    management: "Optional parallel review: you can endorse or comment on admin-approved requests — it does not hold up the flow to Accounts.",
+    admin: "Give approval to site requests. Approved requests go straight to Accounts for PO & payment (Management review is optional and parallel).",
     accounts: "Approved → issue a PO (upload the document) → set milestone payment structure → mark milestones paid.",
   }[user?.role] || "";
 
@@ -83,20 +102,18 @@ export default function Procurement() {
       </header>
 
       <section className="space-y-4">
-        <div className="overline">Active queue</div>
+        <div className="flex flex-wrap items-center gap-2" data-testid="proc-filter-tabs">
+          {TABS.map(([key, label]) => (
+            <button key={key} onClick={() => setFilter(key)} data-testid={`proc-filter-${key}`}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors duration-200 ${filter === key ? "bg-plate text-white border-plate" : "border-line text-ink2 hover:bg-surfacealt"}`}>
+              {label} <span className={`ml-1 ${filter === key ? "text-white/70" : "text-ink2/60"}`}>{counts[key] ?? 0}</span>
+            </button>
+          ))}
+        </div>
         <div className="panel overflow-hidden ag-rise">
-          <ProcTable rows={buckets.active} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} />
+          <ProcTable rows={filtered} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} onHistory={setHistFor} />
         </div>
       </section>
-
-      {buckets.done.length > 0 && (
-        <section className="space-y-4">
-          <div className="overline">History</div>
-          <div className="panel overflow-hidden ag-rise">
-            <ProcTable rows={buckets.done} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} />
-          </div>
-        </section>
-      )}
 
       {showNew && <NewProcurement projects={projects} user={user} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} />}
       {actionFor && <ActionDialog req={actionFor} onClose={() => setActionFor(null)} onSaved={() => { setActionFor(null); load(); }} />}
@@ -105,11 +122,12 @@ export default function Procurement() {
                     onRefresh={async () => { const r = await api.get("/procurement"); setRows(r.data); return r.data.find(x => x.request_id === msFor.request_id); }} />}
       {resubFor && <ResubmitDialog req={resubFor} projName={projName} onClose={() => setResubFor(null)} onSaved={() => { setResubFor(null); load(); }} />}
       {cancelFor && <CancelProcDialog req={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
+      {histFor && <HistoryDialog req={histFor} onClose={() => setHistFor(null)} />}
     </div>
   );
 }
 
-function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onCancel }) {
+function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onCancel, onHistory }) {
   if (rows.length === 0) return <EmptyState icon={FileText} title="Nothing here" hint="Requests appear in this queue." />;
   const total = (r) => (r.milestones?.length
     ? r.milestones.reduce((s, m) => s + Number(m.amount || 0), 0)
@@ -162,18 +180,23 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                     {r.pi_file && <a href={fileUrl(r.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Performa Invoice</a>}
                     {r.po_file && <a href={fileUrl(r.po_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`po-link-${r.request_id}`}><FileCheck2 className="w-3.5 h-3.5" /> Purchase Order</a>}
                     {r.tax_invoice_file && <a href={fileUrl(r.tax_invoice_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`tax-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Tax Invoice</a>}
-                    {!r.pi_file && !r.po_file && !r.tax_invoice_file && <span className="text-xs text-ink2">—</span>}
+                    {r.pi_history?.length > 0 && (
+                      <button onClick={() => onHistory(r)} className="text-xs font-semibold text-bad hover:underline flex items-center gap-1 text-left" data-testid={`rejected-docs-${r.request_id}`}>
+                        <XCircle className="w-3.5 h-3.5" /> {r.pi_history.length} rejected doc{r.pi_history.length > 1 ? "s" : ""}
+                      </button>
+                    )}
+                    {!r.pi_file && !r.po_file && !r.tax_invoice_file && !r.pi_history?.length && <span className="text-xs text-ink2">—</span>}
                   </div>
                 </td>
                 <td className="td text-right whitespace-nowrap">
                   <div className="flex items-center justify-end gap-2">
-                    {user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status) && (
-                      <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`mgmt-review-${r.request_id}`}>Review</button>
+                    {user?.role === "management" && ["approved", "po_issued", "pending_management", "management_clarification"].includes(r.status) && (
+                      <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`mgmt-review-${r.request_id}`}>{r.mgmt_action_at ? "Reviewed ✓" : "Review"}</button>
                     )}
                     {user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status) && (
                       <button onClick={() => onAction(r)} className="btn-secondary text-xs py-1.5" data-testid={`review-${r.request_id}`}>Review</button>
                     )}
-                    {user?.role === "site_manager" && ["pending_clarification", "management_clarification"].includes(r.status) && (
+                    {user?.role === "site_manager" && ["pending_clarification", "management_clarification", "rejected"].includes(r.status) && (
                       <button onClick={() => onResubmit(r)} className="btn-primary text-xs py-1.5" data-testid={`resubmit-${r.request_id}`}><Upload className="w-3.5 h-3.5" /> Upload new PI</button>
                     )}
                     {can(user, "accounts", "admin") && r.status === "approved" && (
@@ -185,10 +208,10 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                     {user?.role === "admin" && !["paid", "rejected", "cancelled"].includes(r.status) && (
                       <button onClick={() => onCancel(r)} className="btn-secondary text-xs py-1.5 text-bad" data-testid={`cancel-${r.request_id}`} title="Cancel this request"><Ban className="w-3.5 h-3.5" /> Cancel</button>
                     )}
-                    {!(user?.role === "management" && ["pending_management", "management_clarification"].includes(r.status)) &&
+                    {!(user?.role === "management" && ["approved", "po_issued", "pending_management", "management_clarification"].includes(r.status)) &&
                      !(user?.role === "admin" && ["pending_admin", "pending_clarification"].includes(r.status)) &&
                      !(user?.role === "admin" && !["paid", "rejected", "cancelled"].includes(r.status)) &&
-                     !(user?.role === "site_manager" && ["pending_clarification", "management_clarification"].includes(r.status)) &&
+                     !(user?.role === "site_manager" && ["pending_clarification", "management_clarification", "rejected"].includes(r.status)) &&
                      !(can(user, "accounts", "admin") && ["approved", "po_issued", "paid"].includes(r.status)) &&
                      <span className="text-xs text-ink2">—</span>}
                   </div>
@@ -318,7 +341,7 @@ function ResubmitDialog({ req, projName, onClose, onSaved }) {
   const save = async () => {
     const valid = items.filter(i => i.name.trim() && Number(i.quantity) > 0);
     if (valid.length === 0) return toast.error("Add at least one item");
-    if (!pi && !req.pi_file) return toast.error("Attach a Performa Invoice");
+    if (!pi) return toast.error("Attach the new Performa Invoice you want to submit");
     setBusy(true);
     try {
       const fd = new FormData();
@@ -386,6 +409,39 @@ function ResubmitDialog({ req, projName, onClose, onSaved }) {
   );
 }
 
+function HistoryDialog({ req, onClose }) {
+  const hist = req.pi_history || [];
+  return (
+    <Modal size="lg" title="Previously rejected documents" subtitle={req.subject} onClose={onClose}
+      footer={<button onClick={onClose} className="btn-secondary">Close</button>}>
+      <p className="text-sm text-ink2 mb-4">Earlier Performa Invoices for this request that were returned or rejected before the current version.</p>
+      <div className="space-y-3" data-testid="pi-history-list">
+        {hist.map((h, i) => (
+          <div key={i} className="border border-line rounded-md p-3" data-testid={`pi-history-${i}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] px-2 py-0.5 rounded-md border border-bad/30 bg-bad/5 text-bad font-semibold">
+                  {h.outcome === "rejected" ? "Rejected" : "Returned"} · v{i + 1}
+                </span>
+                {h.pi_amount > 0 && <span className="text-xs font-mono-num text-ink2">{inr(h.pi_amount)}</span>}
+              </div>
+              {h.pi_file && <a href={fileUrl(h.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-history-link-${i}`}><Paperclip className="w-3.5 h-3.5" /> View document</a>}
+            </div>
+            {h.admin_note && <div className="mt-2 text-xs text-clay"><span className="font-semibold">Admin reason:</span> {h.admin_note}</div>}
+            {h.mgmt_note && <div className="mt-1 text-xs text-clay"><span className="font-semibold">Management:</span> {h.mgmt_note}</div>}
+            {h.notes && <div className="mt-1 text-xs text-ink2"><span className="font-semibold">Site note:</span> {h.notes}</div>}
+            {(h.items || []).length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                {h.items.map((it, k) => <div key={k} className="text-[11px] text-ink2">• {it.name} — <span className="font-mono-num">{it.quantity} {it.unit}</span> @ <span className="font-mono-num">{inr(it.est_cost)}</span></div>)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 function CancelProcDialog({ req, onClose, onSaved }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -411,6 +467,8 @@ function CancelProcDialog({ req, onClose, onSaved }) {
 
 
 function ActionDialog({ req, onClose, onSaved }) {
+  const { user } = useAuth();
+  const isMgmt = user?.role === "management";
   const [action, setAction] = useState("approve");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -418,10 +476,11 @@ function ActionDialog({ req, onClose, onSaved }) {
     if (action !== "approve" && !note.trim()) return toast.error("Please add a note");
     setBusy(true);
     try {
-      const isMgmt = ["pending_management", "management_clarification"].includes(req.status);
       const url = isMgmt ? `/procurement/${req.request_id}/mgmt-action` : `/procurement/${req.request_id}/action`;
       await api.post(url, { action, note });
-      toast.success(action === "approve" ? (isMgmt ? "Approved — sent to Admin" : "Approved") : action === "reject" ? "Rejected" : "Marked for clarification");
+      toast.success(isMgmt
+        ? (action === "approve" ? "Endorsed — recorded for admin" : "Comment recorded for admin")
+        : (action === "approve" ? "Approved — sent to Accounts" : action === "reject" ? "Rejected" : "Sent back for a new PI"));
       onSaved();
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
   };
@@ -432,10 +491,11 @@ function ActionDialog({ req, onClose, onSaved }) {
     </button>
   );
   return (
-    <Modal title="Review procurement" subtitle={req.subject} onClose={onClose}
+    <Modal title={isMgmt ? "Management review (optional)" : "Review procurement"} subtitle={req.subject} onClose={onClose}
       footer={<><button onClick={onClose} className="btn-secondary">Cancel</button>
         <button onClick={save} disabled={busy} className="btn-primary" data-testid="act-submit">{busy ? "Saving…" : "Confirm decision"}</button></>}>
       <div className="mb-4"><StageTrack status={req.status} /></div>
+      {isMgmt && <div className="text-xs text-ink2 mb-3">Your review is optional and parallel — it's recorded for the admin and does not hold up the flow to Accounts.</div>}
       {req.pi_file && <a href={fileUrl(req.pi_file.file_id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-brand mb-4"><Paperclip className="w-4 h-4" /> View Performa Invoice</a>}
       {req.pi_amount > 0 && <div className="text-sm mb-2">PI amount: <span className="font-mono-num font-semibold">{inr(req.pi_amount)}</span></div>}
       {req.notes && <div className="bg-clay/5 border border-clay/20 rounded-md p-3 mb-4 text-sm text-ink" data-testid="review-sm-notes"><span className="overline text-clay">Site manager note</span><div className="mt-1">{req.notes}</div></div>}
@@ -444,9 +504,9 @@ function ActionDialog({ req, onClose, onSaved }) {
       </div>
       <label className="label">Decision</label>
       <div className="grid grid-cols-3 gap-2">
-        {btn("approve", "Approve", CheckCircle2, "bg-brand text-white border-brand")}
-        {btn("reject", "Reject", XCircle, "bg-bad text-white border-bad")}
-        {btn("clarify", "Details", HelpCircle, "bg-clay text-white border-clay")}
+        {btn("approve", isMgmt ? "Endorse" : "Approve", CheckCircle2, "bg-brand text-white border-brand")}
+        {btn("reject", isMgmt ? "Object" : "Reject", XCircle, "bg-bad text-white border-bad")}
+        {btn("clarify", isMgmt ? "Comment" : "Ask new PI", HelpCircle, "bg-clay text-white border-clay")}
       </div>
       <label className="label mt-4">Note {action !== "approve" && <span className="text-bad">*</span>}</label>
       <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} className="input" data-testid="act-note" />
