@@ -546,3 +546,11 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - Verified: testing_agent iteration_33 — backend 13/13 PASS (pytest /app/backend/tests/test_procurement_e2e.py), frontend 100% (GridFS open/download no 500, mgmt parallel non-gating, reject→resubmit→approve, conditional rejected-docs viewer + old file 200, filter tabs). Preview cleaned (procurement=0). Also self-tested via curl.
 - Minor polish this phase: po_issued now completes the Accounts stage in StageTrack (REACHED po_issued=3); resubmit requires a new file so history always archives.
 - ACTION FOR USER: Redeploy. New uploads store in MongoDB and will open reliably. Re-upload any documents that were attached before this change (their old objects are unrecoverable from the failed external storage).
+
+---
+## PHASE 38b · HOTFIX: production login 503 — blocking startup call to dead storage proxy (2026-06)
+- Symptom: LIVE login returned 503; direct probe of production showed 524 (origin timeout) even on GET /api/projects → backend not becoming ready (startup hang).
+- Root cause: @app.on_event("startup") called init_storage() — a SYNCHRONOUS requests.post() to the external object-storage proxy. That proxy is broken/unreachable in production (the very reason we moved to GridFS), so the blocking call stalled the async startup and the readiness probe failed → 503 on all endpoints incl. login. Preview was fine (proxy reachable there).
+- Fix: removed init_storage() from startup entirely (no longer needed — files are in MongoDB/GridFS now; the legacy proxy is only touched lazily on OLD-file downloads). Also tightened requests timeouts: init_storage (5,8), get_object (5,15) so lazy legacy downloads can't hang a request thread. download_file already catches timeouts → clean 502.
+- Verified in preview: backend boots clean (no more startup storage call), login 200, projects 401 (auth) as expected.
+- ACTION FOR USER: Redeploy — production login should work again immediately after.

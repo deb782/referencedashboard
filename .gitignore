@@ -6,5 +6,11 @@ credentials.json
 *.key
 .credentials
 
+node_modules/
+**/node_modules/
+build/
+dist/
+coverage/
+
 memory/test_credentials.md
 test_credentials.md

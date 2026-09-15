@@ -75,7 +75,7 @@ def init_storage(force: bool = False):
     global _storage_key
     if _storage_key and not force:
         return _storage_key
-    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=(5, 8))
     if resp.status_code != 200:
         raise StorageError(resp.status_code, f"init: {resp.text or ''}")
     _storage_key = resp.json()["storage_key"]
@@ -98,11 +98,11 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
 
 def get_object(path: str) -> tuple:
     key = init_storage()
-    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=(5, 15))
     # 404 can mean a dead session key -> mint a fresh key once and retry.
     if resp.status_code == 404:
         key = init_storage(force=True)
-        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=(5, 15))
     if resp.status_code != 200:
         raise StorageError(resp.status_code, resp.text or "")
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
@@ -3582,11 +3582,9 @@ async def startup():
         {"$set": {"status": "approved"}})
     if r.modified_count:
         log.info("Advanced %d procurement request(s) past the retired Management gate", r.modified_count)
-    try:
-        init_storage()
-        log.info("Object storage initialised")
-    except Exception as e:
-        log.warning("Object storage init failed (will retry on demand): %s", e)
+    # NOTE: object storage is NOT initialised here — files now live in MongoDB (GridFS).
+    # The legacy object-storage proxy is only touched lazily when an OLD file is
+    # downloaded, so a broken/unreachable proxy can never block app startup.
     # Provision the initial admin if the users collection is empty
     n = await db.users.count_documents({})
     if n == 0:
