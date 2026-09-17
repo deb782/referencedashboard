@@ -571,3 +571,11 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - Frontend (Procurement.jsx): "Comments (N)" button (data-testid comments-<id>) in the Action column for ALL roles when status po_issued/paid → CommentsDialog (data-testid comments-thread) showing each comment with author + role badge + optional "re: <activity>" tag + timestamp; compose box (comment-input) with optional milestone dropdown (comment-milestone) and Post button (comment-send).
 - Verified: curl (before-PO 400, tagged 200, general 200, empty 400, persisted in order with role+tag) + screenshot (dialog renders, posted comment shows ADMIN badge + re: Activity A tag). Preview procurement=0.
 - ACTION FOR USER: Redeploy.
+
+---
+## PHASE 41 · REAL ROOT CAUSE of "Internal Server Error" on file download — non-ASCII filename in Content-Disposition (2026-06)
+- The persistent raw 500 was NOT (only) storage — it was the download response header. download_file set `Content-Disposition: inline; filename="<original_filename>"`. Production files have non-Latin-1 names (Hindi/Devanagari, ₹), and Starlette encodes headers as latin-1 → UnicodeEncodeError raised DURING response send (after the handler returns) → uncaught → raw "Internal Server Error". This bypassed all my try/except (which only wrap the fetch, not the Response send). Reproduced in preview: GridFS file named 'बिल_₹.pdf' → HTTP 500; ASCII name → 200.
+- Fix: added _content_disposition(fname) building an RFC 5987 header: `inline; filename="<ascii-stripped>"; filename*=UTF-8''<percent-encoded>` — always ASCII-safe. Applied to both GridFS and legacy return paths. Added `from urllib.parse import quote`.
+- Verified in preview: 'बिल_₹ काम.pdf' → HTTP 200 (correct bytes); 'Invoice 123.pdf' → 200. Preview procurement=0.
+- IMPLICATION: object storage may have been working all along for legacy files — the header was the crash. After deploy, EXISTING production files (with Indian/₹ names) should OPEN without re-upload (assuming their objects exist). If a specific legacy object was genuinely lost, it returns a clean 502 "re-upload" instead of a raw 500.
+- ACTION FOR USER: Redeploy once more (this filename fix was made after the last deploy started), then click a Performa Invoice — it should open.

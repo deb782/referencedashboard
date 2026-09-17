@@ -18,6 +18,7 @@ from typing import List, Literal, Optional
 
 import bcrypt
 import jwt
+from urllib.parse import quote
 from dotenv import load_dotenv
 from fastapi import (
     Body, Depends, FastAPI, File, Form, HTTPException, Header, Query, UploadFile,
@@ -94,6 +95,14 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
                             data=data, timeout=120)
     resp.raise_for_status()
     return resp.json()
+
+
+def _content_disposition(fname: str) -> str:
+    """Build a Latin-1-safe Content-Disposition header (RFC 5987) so non-ASCII
+    filenames (e.g. Hindi text, ₹) don't crash response header encoding."""
+    fname = (fname or "file").replace("\r", " ").replace("\n", " ").strip() or "file"
+    ascii_name = (fname.encode("ascii", "ignore").decode().strip() or "file").replace('"', "'")
+    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
 
 
 def get_object(path: str) -> tuple:
@@ -2620,6 +2629,8 @@ async def download_file(file_id: str, authorization: str = Header(None),
         raise HTTPException(404, "File not found")
     fname = rec.get("original_filename") or "file"
     ctype = rec.get("content_type", "application/octet-stream")
+    # Latin-1-safe Content-Disposition (non-ASCII filenames otherwise crash response encoding).
+    cdisp = _content_disposition(fname)
 
     # New files live in MongoDB GridFS.
     if rec.get("gridfs_id"):
@@ -2630,7 +2641,7 @@ async def download_file(file_id: str, authorization: str = Header(None),
             log.error("GridFS read failed file=%s gid=%s err=%s", file_id, rec.get("gridfs_id"), e)
             raise HTTPException(404, "This file could not be read. Please re-upload it and try again.")
         return Response(content=data, media_type=ctype,
-                        headers={"Content-Disposition": f'inline; filename="{fname}"'})
+                        headers={"Content-Disposition": cdisp})
 
     # Legacy files stored in the external object-storage service.
     if not rec.get("storage_path"):
@@ -2651,7 +2662,7 @@ async def download_file(file_id: str, authorization: str = Header(None),
         raise HTTPException(502, "This file was uploaded on the old storage and can no longer be "
                                  "retrieved. Please re-upload it.")
     return Response(content=data, media_type=ctype,
-                    headers={"Content-Disposition": f'inline; filename="{fname}"'})
+                    headers={"Content-Disposition": cdisp})
 
 
 @api.post("/procurement/{request_id}/action")
