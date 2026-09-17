@@ -579,3 +579,11 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - Verified in preview: 'बिल_₹ काम.pdf' → HTTP 200 (correct bytes); 'Invoice 123.pdf' → 200. Preview procurement=0.
 - IMPLICATION: object storage may have been working all along for legacy files — the header was the crash. After deploy, EXISTING production files (with Indian/₹ names) should OPEN without re-upload (assuming their objects exist). If a specific legacy object was genuinely lost, it returns a clean 502 "re-upload" instead of a raw 500.
 - ACTION FOR USER: Redeploy once more (this filename fix was made after the last deploy started), then click a Performa Invoice — it should open.
+
+---
+## PHASE 42 · Payment-release request flag on comments (2026-06)
+- ProcComment +release_request:bool. Comment stores release_request + release_status ("open"|None) + (on resolve) resolved_by/resolved_at. Release-request comments notify stakeholders with type procurement_release_request ("Payment release requested by ...").
+- New endpoint POST /api/procurement/{id}/comment/{comment_id}/resolve (accounts/admin) → sets release_status="resolved", resolved_by/at; notifies the comment author. 404 if comment id not found.
+- Frontend CommentsDialog: compose has "Flag as a payment-release request for Accounts" checkbox (comment-release-toggle); flagged comments render red "Payment release requested" badge (release-flag-<i>) or green "Released · <name>" when resolved; Accounts/Admin get a "Mark released" button (resolve-release-<i>). Row shows amber "Payment release requested" badge (release-requested-<id>) + a red dot on the Comments button when an open release request exists.
+- Verified: curl (flag stored open → resolve → resolved by name → 404 bad id) + screenshot (badge, checkbox, Mark released, row badge all render). Preview procurement=0.
+- ACTION FOR USER: Redeploy.

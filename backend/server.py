@@ -446,6 +446,7 @@ class MilestonePay(BaseModel):
 class ProcComment(BaseModel):
     text: str
     milestone_ref: Optional[str] = None
+    release_request: bool = False
 
 
 class ProcurementCreate(BaseModel):
@@ -2591,6 +2592,8 @@ async def add_procurement_comment(request_id: str, payload: ProcComment,
         "user_id": user.user_id, "user_name": user.name, "role": user.role,
         "text": payload.text.strip(),
         "milestone_ref": (payload.milestone_ref or None),
+        "release_request": bool(payload.release_request),
+        "release_status": "open" if payload.release_request else None,
         "created_at": now(),
     }
     await db.procurement.update_one({"request_id": request_id}, {"$push": {"comments": comment}})
@@ -2604,10 +2607,38 @@ async def add_procurement_comment(request_id: str, payload: ProcComment,
     recipients.update(u["user_id"] for u in others)
     recipients.discard(user.user_id)
     tag = f" (re: {comment['milestone_ref']})" if comment["milestone_ref"] else ""
-    msg = f"{user.name} commented on '{doc['subject']}'{tag}: {comment['text'][:80]}"
+    if comment["release_request"]:
+        ntype = "procurement_release_request"
+        msg = f"Payment release requested by {user.name} on '{doc['subject']}'{tag}: {comment['text'][:70]}"
+    else:
+        ntype = "procurement_comment"
+        msg = f"{user.name} commented on '{doc['subject']}'{tag}: {comment['text'][:80]}"
     for uid in recipients:
-        await notify(uid, "procurement_comment", msg, "/procurement")
+        await notify(uid, ntype, msg, "/procurement")
     return {"ok": True, "comment": comment}
+
+
+@api.post("/procurement/{request_id}/comment/{comment_id}/resolve")
+async def resolve_release_request(request_id: str, comment_id: str,
+                                   user: User = Depends(require_roles("accounts", "admin"))):
+    """Accounts marks a 'payment release' comment as released/actioned."""
+    doc = await db.procurement.find_one(
+        {"request_id": request_id, "comments.comment_id": comment_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Comment not found")
+    res = await db.procurement.update_one(
+        {"request_id": request_id, "comments.comment_id": comment_id},
+        {"$set": {"comments.$.release_status": "resolved",
+                  "comments.$.resolved_by": user.name,
+                  "comments.$.resolved_at": now()}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Comment not found")
+    cmt = next((c for c in doc.get("comments", []) if c.get("comment_id") == comment_id), {})
+    if cmt.get("user_id"):
+        await notify(cmt["user_id"], "procurement_release_resolved",
+                     f"{user.name} marked your payment-release request as released · "
+                     f"{doc['subject']}", "/procurement")
+    return {"ok": True}
 
 
 @api.get("/files/{file_id}/download")

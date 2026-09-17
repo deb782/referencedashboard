@@ -193,6 +193,11 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                       <AlertTriangle className="w-3 h-3" /> Items {inr(itemsTotal(r))} exceed PI {inr(r.pi_amount)} by {inr(itemsTotal(r) - r.pi_amount)}
                     </div>
                   )}
+                  {(r.comments || []).some(c => c.release_request && c.release_status !== "resolved") && (
+                    <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-clay bg-clay/10 border border-clay/25 rounded-md px-2 py-0.5" data-testid={`release-requested-${r.request_id}`}>
+                      <AlertTriangle className="w-3 h-3" /> Payment release requested
+                    </div>
+                  )}
                   {hasDetail && (
                     <div className="mt-2 space-y-1.5">
                       {notes.map((n, i) => <div key={i} className="text-xs text-clay">{n}</div>)}
@@ -260,7 +265,10 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                       <button onClick={() => onMs(r)} className="btn-primary text-xs py-1.5" data-testid={`ms-${r.request_id}`}><Layers className="w-3.5 h-3.5" /> Payment structure</button>
                     )}
                     {["po_issued", "paid"].includes(r.status) && (
-                      <button onClick={() => onComment(r)} className="btn-secondary text-xs py-1.5" data-testid={`comments-${r.request_id}`}><MessageSquare className="w-3.5 h-3.5" /> Comments{r.comments?.length ? ` (${r.comments.length})` : ""}</button>
+                      <button onClick={() => onComment(r)} className="btn-secondary text-xs py-1.5 relative" data-testid={`comments-${r.request_id}`}>
+                        <MessageSquare className="w-3.5 h-3.5" /> Comments{r.comments?.length ? ` (${r.comments.length})` : ""}
+                        {(r.comments || []).some(c => c.release_request && c.release_status !== "resolved") && <span className="ml-1 inline-block w-2 h-2 rounded-full bg-bad" title="Payment release requested" />}
+                      </button>
                     )}
                     {user?.role === "admin" && !["paid", "rejected", "cancelled"].includes(r.status) && (
                       <button onClick={() => onCancel(r)} className="btn-secondary text-xs py-1.5 text-bad" data-testid={`cancel-${r.request_id}`} title="Cancel this request"><Ban className="w-3.5 h-3.5" /> Cancel</button>
@@ -504,18 +512,28 @@ function CommentsDialog({ req, user, onClose, onSaved }) {
   const [comments, setComments] = useState(req.comments || []);
   const [text, setText] = useState("");
   const [ref, setRef] = useState("");
+  const [release, setRelease] = useState(false);
   const [busy, setBusy] = useState(false);
   const milestones = req.milestones || [];
+  const isAccounts = user?.role === "accounts" || user?.role === "admin";
   const roleLabel = { site_manager: "Site Manager", admin: "Admin", management: "Management", accounts: "Accounts" };
   const send = async () => {
     if (!text.trim()) return toast.error("Write a comment first");
     setBusy(true);
     try {
-      const { data } = await api.post(`/procurement/${req.request_id}/comment`, { text, milestone_ref: ref || null });
+      const { data } = await api.post(`/procurement/${req.request_id}/comment`, { text, milestone_ref: ref || null, release_request: release });
       setComments([...comments, data.comment]);
-      setText(""); setRef("");
+      setText(""); setRef(""); setRelease(false);
       onSaved();
     } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+  };
+  const resolve = async (c) => {
+    try {
+      await api.post(`/procurement/${req.request_id}/comment/${c.comment_id}/resolve`);
+      setComments(comments.map(x => x.comment_id === c.comment_id ? { ...x, release_status: "resolved", resolved_by: user?.name } : x));
+      toast.success("Marked as released");
+      onSaved();
+    } catch (e) { toast.error(apiError(e)); }
   };
   return (
     <Modal size="lg" title="Activity & payment conversation" subtitle={req.subject} onClose={onClose}
@@ -523,19 +541,32 @@ function CommentsDialog({ req, user, onClose, onSaved }) {
       <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1 mb-4" data-testid="comments-thread">
         {comments.length === 0 ? (
           <div className="text-sm text-ink2 text-center py-6">No comments yet. Post an update on the work or payment below.</div>
-        ) : comments.map((c, i) => (
-          <div key={c.comment_id || i} className={`rounded-md border p-3 ${c.user_id === user?.id ? "border-brand/30 bg-brand/5" : "border-line bg-surfacealt/40"}`} data-testid={`comment-${i}`}>
+        ) : comments.map((c, i) => {
+          const openRelease = c.release_request && c.release_status !== "resolved";
+          return (
+          <div key={c.comment_id || i} className={`rounded-md border p-3 ${openRelease ? "border-clay/40 bg-clay/5" : c.user_id === user?.id ? "border-brand/30 bg-brand/5" : "border-line bg-surfacealt/40"}`} data-testid={`comment-${i}`}>
             <div className="flex items-center justify-between gap-2 mb-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-ink">{c.user_name}</span>
                 <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-plate/10 text-plate font-semibold">{roleLabel[c.role] || c.role}</span>
                 {c.milestone_ref && <span className="text-[10px] px-1.5 py-0.5 rounded bg-clay/10 text-clay font-semibold">re: {c.milestone_ref}</span>}
+                {c.release_request && (
+                  c.release_status === "resolved"
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-ok/10 text-ok font-semibold inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Released{c.resolved_by ? ` · ${c.resolved_by}` : ""}</span>
+                    : <span className="text-[10px] px-1.5 py-0.5 rounded bg-bad/10 text-bad font-semibold inline-flex items-center gap-1" data-testid={`release-flag-${i}`}><AlertTriangle className="w-3 h-3" /> Payment release requested</span>
+                )}
               </div>
               <span className="text-[11px] text-ink2">{c.created_at ? new Date(c.created_at).toLocaleString() : ""}</span>
             </div>
             <div className="text-sm text-ink whitespace-pre-wrap">{c.text}</div>
+            {openRelease && isAccounts && (
+              <div className="mt-2 flex justify-end">
+                <button onClick={() => resolve(c)} className="btn-secondary text-xs py-1" data-testid={`resolve-release-${i}`}><CheckCircle2 className="w-3.5 h-3.5" /> Mark released</button>
+              </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
       <div className="border-t border-line pt-3 space-y-2">
         {milestones.length > 0 && (
@@ -546,7 +577,11 @@ function CommentsDialog({ req, user, onClose, onSaved }) {
         )}
         <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} className="input" data-testid="comment-input"
           placeholder="e.g. Activity A done, kindly release payment for Activity B" />
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-xs text-ink cursor-pointer select-none" data-testid="comment-release-toggle">
+            <input type="checkbox" checked={release} onChange={(e) => setRelease(e.target.checked)} className="accent-clay w-4 h-4" />
+            Flag as a payment-release request for Accounts
+          </label>
           <button onClick={send} disabled={busy} className="btn-primary" data-testid="comment-send"><MessageSquare className="w-3.5 h-3.5" /> {busy ? "Posting…" : "Post comment"}</button>
         </div>
       </div>
