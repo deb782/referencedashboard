@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, CheckCircle2, XCircle, HelpCircle, FileText, Receipt, Paperclip, Upload, FileCheck2, Layers, Ban } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, XCircle, HelpCircle, FileText, Receipt, Paperclip, Upload, FileCheck2, Layers, Ban, RefreshCw, AlertTriangle } from "lucide-react";
 import { api, apiError, fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, Modal, inr, inrShort } from "@/components/ui";
@@ -111,7 +111,7 @@ export default function Procurement() {
           ))}
         </div>
         <div className="panel overflow-hidden ag-rise">
-          <ProcTable rows={filtered} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} onHistory={setHistFor} />
+          <ProcTable rows={filtered} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} onHistory={setHistFor} onReload={load} />
         </div>
       </section>
 
@@ -127,7 +127,39 @@ export default function Procurement() {
   );
 }
 
-function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onCancel, onHistory }) {
+function ReplaceBtn({ requestId, docType, onReload }) {
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const pick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("doc_type", docType);
+      fd.append("file", f);
+      await api.post(`/procurement/${requestId}/replace-file`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("Document replaced");
+      onReload();
+    } catch (err) { toast.error(apiError(err)); }
+    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ""; }
+  };
+  return (
+    <span className="inline-flex items-center">
+      <button onClick={() => inputRef.current?.click()} disabled={busy}
+        className="text-[10px] text-ink2 hover:text-brand inline-flex items-center gap-0.5"
+        data-testid={`replace-${docType}-${requestId}`} title="Replace this document">
+        <RefreshCw className={`w-3 h-3 ${busy ? "animate-spin" : ""}`} /> {busy ? "" : "replace"}
+      </button>
+      <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden onChange={pick} />
+    </span>
+  );
+}
+
+const itemsTotal = (r) => (r.items || []).reduce((s, i) => s + Number(i.est_cost || 0) * Number(i.quantity || 0), 0);
+const isOverBudget = (r) => Number(r.pi_amount) > 0 && itemsTotal(r) > Number(r.pi_amount) + 0.5;
+
+function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onCancel, onHistory, onReload }) {
   if (rows.length === 0) return <EmptyState icon={FileText} title="Nothing here" hint="Requests appear in this queue." />;
   const total = (r) => (r.milestones?.length
     ? r.milestones.reduce((s, m) => s + Number(m.amount || 0), 0)
@@ -154,6 +186,11 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                 <td className="td">
                   <div className="font-display text-base font-medium text-ink leading-tight">{r.subject}</div>
                   <div className="text-xs text-ink2 mt-0.5">{projName(r.project_id)} · {(r.items || []).length} item(s){r.po_number ? ` · PO ${r.po_number}` : ""}</div>
+                  {isOverBudget(r) && (
+                    <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-bad bg-bad/5 border border-bad/20 rounded-md px-2 py-0.5" data-testid={`overbudget-${r.request_id}`}>
+                      <AlertTriangle className="w-3 h-3" /> Items {inr(itemsTotal(r))} exceed PI {inr(r.pi_amount)} by {inr(itemsTotal(r) - r.pi_amount)}
+                    </div>
+                  )}
                   {hasDetail && (
                     <div className="mt-2 space-y-1.5">
                       {notes.map((n, i) => <div key={i} className="text-xs text-clay">{n}</div>)}
@@ -177,9 +214,24 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                 <td className="td text-right font-mono-num text-ink whitespace-nowrap" title={inr(total(r))}>{inrShort(total(r))}</td>
                 <td className="td">
                   <div className="flex flex-col gap-1.5">
-                    {r.pi_file && <a href={fileUrl(r.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Performa Invoice</a>}
-                    {r.po_file && <a href={fileUrl(r.po_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`po-link-${r.request_id}`}><FileCheck2 className="w-3.5 h-3.5" /> Purchase Order</a>}
-                    {r.tax_invoice_file && <a href={fileUrl(r.tax_invoice_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`tax-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Tax Invoice</a>}
+                    {r.pi_file && (
+                      <div className="flex items-center gap-2">
+                        <a href={fileUrl(r.pi_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`pi-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Performa Invoice</a>
+                        {(user?.role === "admin" || user?.role === "site_manager") && <ReplaceBtn requestId={r.request_id} docType="pi" onReload={onReload} />}
+                      </div>
+                    )}
+                    {r.po_file && (
+                      <div className="flex items-center gap-2">
+                        <a href={fileUrl(r.po_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`po-link-${r.request_id}`}><FileCheck2 className="w-3.5 h-3.5" /> Purchase Order</a>
+                        {(user?.role === "admin" || user?.role === "accounts") && <ReplaceBtn requestId={r.request_id} docType="po" onReload={onReload} />}
+                      </div>
+                    )}
+                    {r.tax_invoice_file && (
+                      <div className="flex items-center gap-2">
+                        <a href={fileUrl(r.tax_invoice_file.file_id)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:text-brand-hover flex items-center gap-1" data-testid={`tax-link-${r.request_id}`}><Paperclip className="w-3.5 h-3.5" /> Tax Invoice</a>
+                        {(user?.role === "admin" || user?.role === "accounts") && <ReplaceBtn requestId={r.request_id} docType="tax" onReload={onReload} />}
+                      </div>
+                    )}
                     {r.pi_history?.length > 0 && (
                       <button onClick={() => onHistory(r)} className="text-xs font-semibold text-bad hover:underline flex items-center gap-1 text-left" data-testid={`rejected-docs-${r.request_id}`}>
                         <XCircle className="w-3.5 h-3.5" /> {r.pi_history.length} rejected doc{r.pi_history.length > 1 ? "s" : ""}
@@ -502,6 +554,12 @@ function ActionDialog({ req, onClose, onSaved }) {
       <div className="bg-surfacealt/60 border border-line rounded-md p-3 space-y-1 mb-4">
         {(req.items || []).map((i, idx) => <div key={idx} className="text-xs text-ink2">• {i.name} — <span className="font-mono-num">{i.quantity} {i.unit}</span> @ <span className="font-mono-num">{inr(i.est_cost)}</span>{i.notes ? <span className="text-clay"> · {i.notes}</span> : ""}</div>)}
       </div>
+      {isOverBudget(req) && (
+        <div className="bg-bad/5 border border-bad/25 rounded-md p-3 mb-4 flex items-start gap-2" data-testid="review-overbudget">
+          <AlertTriangle className="w-4 h-4 text-bad mt-0.5 shrink-0" />
+          <div className="text-xs text-ink"><span className="font-semibold text-bad">Over budget:</span> the bifurcated item costs ({inr(itemsTotal(req))}) exceed the PI amount ({inr(req.pi_amount)}) by <span className="font-mono-num font-semibold">{inr(itemsTotal(req) - req.pi_amount)}</span>. Please review before approving.</div>
+        </div>
+      )}
       <label className="label">Decision</label>
       <div className="grid grid-cols-3 gap-2">
         {btn("approve", isMgmt ? "Endorse" : "Approve", CheckCircle2, "bg-brand text-white border-brand")}

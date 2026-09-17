@@ -554,3 +554,11 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - Fix: removed init_storage() from startup entirely (no longer needed — files are in MongoDB/GridFS now; the legacy proxy is only touched lazily on OLD-file downloads). Also tightened requests timeouts: init_storage (5,8), get_object (5,15) so lazy legacy downloads can't hang a request thread. download_file already catches timeouts → clean 502.
 - Verified in preview: backend boots clean (no more startup storage call), login 200, projects 401 (auth) as expected.
 - ACTION FOR USER: Redeploy — production login should work again immediately after.
+
+---
+## PHASE 39 · Replace-file action + Budget alerts (2026-06)
+- REPLACE FILE: POST /api/procurement/{id}/replace-file (Form doc_type=pi|po|tax, file). Re-attaches a document WITHOUT changing workflow status — for re-uploading files whose old external-storage object was lost. Permissions: pi→site_manager(own)/admin, po/tax→accounts/admin. Stores via GridFS. Frontend: inline "replace" (RefreshCw) button beside each PI/PO/Tax link in the Documents column, role-gated; uploads then reloads. data-testid replace-{pi|po|tax}-<id>. Verified: replace PI → new gridfs file downloads 200; bad doc_type → 400.
+- BUDGET ALERTS: helper isOverBudget(r) = pi_amount>0 && sum(items qty*est_cost) > pi_amount. Red badge on the request row (data-testid overbudget-<id>) "Items X exceed PI Y by Z", and a warning banner in the Admin review dialog (data-testid review-overbudget) so admin sees it before approving. Non-blocking (soft, per earlier user choice).
+- Verified via curl + one screenshot (badge + replace link render). Preview procurement=0.
+- Also (PHASE 38b) added node_modules to .gitignore (root + frontend) so the lint gate skips dependencies.
+- ACTION FOR USER: Redeploy.

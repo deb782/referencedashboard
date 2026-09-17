@@ -2475,6 +2475,36 @@ async def resubmit_pi(request_id: str,
     return {"ok": True, "status": "pending_admin"}
 
 
+@api.post("/procurement/{request_id}/replace-file")
+async def replace_file(request_id: str,
+                       doc_type: str = Form(...),
+                       file: UploadFile = File(...),
+                       user: User = Depends(require_roles("site_manager", "admin", "accounts"))):
+    """Re-attach a document (PI / PO / Tax Invoice) on a request without changing its workflow
+    status — used to re-upload files whose old (external) storage object was lost."""
+    field_map = {"pi": ("pi_file", "procurement/pi"),
+                 "po": ("po_file", "procurement/po"),
+                 "tax": ("tax_invoice_file", "procurement/tax")}
+    if doc_type not in field_map:
+        raise HTTPException(400, "Invalid document type")
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    # Permissions: PI belongs to the site manager (own) or admin; PO/Tax to accounts or admin.
+    if doc_type == "pi":
+        if user.role not in ("site_manager", "admin"):
+            raise HTTPException(403, "Not allowed")
+        if user.role == "site_manager" and doc.get("requested_by") != user.user_id:
+            raise HTTPException(403, "Not your request")
+    else:
+        if user.role not in ("accounts", "admin"):
+            raise HTTPException(403, "Not allowed")
+    field, folder = field_map[doc_type]
+    ref = await save_upload(file, folder, user.user_id)
+    await db.procurement.update_one({"request_id": request_id}, {"$set": {field: ref}})
+    return {"ok": True, "doc_type": doc_type, "file": ref}
+
+
 @api.post("/procurement/{request_id}/milestones")
 async def set_milestones(request_id: str, payload: MilestonesSet,
                           user: User = Depends(require_roles("accounts", "admin"))):
