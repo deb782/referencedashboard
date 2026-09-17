@@ -403,6 +403,7 @@ class ProcurementRequest(BaseModel):
     po_number: Optional[str] = None
     accounts_note: str = ""                 # Accounts comment back to site manager
     milestones: list = []                   # [{label,amount,due,status,paid_date,paid_amount,notes}]
+    comments: list = []                     # execution thread [{comment_id,user_id,user_name,role,text,milestone_ref,created_at}]
     mgmt_action_by: Optional[str] = None
     mgmt_action_at: Optional[str] = None
     mgmt_note: str = ""
@@ -431,6 +432,11 @@ class MilestonePay(BaseModel):
     paid_date: Optional[str] = None
     paid_amount: Optional[float] = None
     notes: str = ""
+
+
+class ProcComment(BaseModel):
+    text: str
+    milestone_ref: Optional[str] = None
 
 
 class ProcurementCreate(BaseModel):
@@ -2555,6 +2561,44 @@ async def pay_milestone(request_id: str, idx: int, payload: MilestonePay,
                       f"Milestone '{ms[idx]['label']}' paid · {doc['subject']} · "
                       f"\u20B9{ms[idx]['paid_amount']:,.2f}", "/procurement")
     return {"ok": True, "all_paid": all_paid, "paid_amount": total_paid}
+
+
+@api.post("/procurement/{request_id}/comment")
+async def add_procurement_comment(request_id: str, payload: ProcComment,
+                                   user: User = Depends(require_roles(
+                                       "site_manager", "admin", "management", "accounts"))):
+    """Execution-phase conversation thread on a request (PO issued onward)."""
+    if not payload.text.strip():
+        raise HTTPException(400, "Comment cannot be empty")
+    doc = await db.procurement.find_one({"request_id": request_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Request not found")
+    if doc["status"] not in ("po_issued", "paid"):
+        raise HTTPException(400, "Comments open once a PO has been issued")
+    if user.role == "management" and user.project_id and doc["project_id"] != user.project_id:
+        raise HTTPException(403, "Project not in your scope")
+    comment = {
+        "comment_id": new_id("cmt"),
+        "user_id": user.user_id, "user_name": user.name, "role": user.role,
+        "text": payload.text.strip(),
+        "milestone_ref": (payload.milestone_ref or None),
+        "created_at": now(),
+    }
+    await db.procurement.update_one({"request_id": request_id}, {"$push": {"comments": comment}})
+    # Notify every other stakeholder on this request.
+    recipients = {doc["requested_by"]}
+    others = await db.users.find(
+        {"is_active": True,
+         "$or": [{"role": {"$in": ["admin", "accounts"]}},
+                 {"role": "management", "project_id": doc["project_id"]}]},
+        {"_id": 0, "user_id": 1}).to_list(200)
+    recipients.update(u["user_id"] for u in others)
+    recipients.discard(user.user_id)
+    tag = f" (re: {comment['milestone_ref']})" if comment["milestone_ref"] else ""
+    msg = f"{user.name} commented on '{doc['subject']}'{tag}: {comment['text'][:80]}"
+    for uid in recipients:
+        await notify(uid, "procurement_comment", msg, "/procurement")
+    return {"ok": True, "comment": comment}
 
 
 @api.get("/files/{file_id}/download")

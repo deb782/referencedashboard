@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, CheckCircle2, XCircle, HelpCircle, FileText, Receipt, Paperclip, Upload, FileCheck2, Layers, Ban, RefreshCw, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, XCircle, HelpCircle, FileText, Receipt, Paperclip, Upload, FileCheck2, Layers, Ban, RefreshCw, AlertTriangle, MessageSquare } from "lucide-react";
 import { api, apiError, fileUrl } from "@/lib/api";
 import { useAuth, can } from "@/lib/auth";
 import { StatusPill, EmptyState, Modal, inr, inrShort } from "@/components/ui";
@@ -49,6 +49,7 @@ export default function Procurement() {
   const [resubFor, setResubFor] = useState(null);
   const [cancelFor, setCancelFor] = useState(null);
   const [histFor, setHistFor] = useState(null);
+  const [commFor, setCommFor] = useState(null);
   const [filter, setFilter] = useState("active");
 
   const load = async () => {
@@ -111,7 +112,7 @@ export default function Procurement() {
           ))}
         </div>
         <div className="panel overflow-hidden ag-rise">
-          <ProcTable rows={filtered} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} onHistory={setHistFor} onReload={load} />
+          <ProcTable rows={filtered} projName={projName} user={user} onAction={setActionFor} onPo={setPoFor} onMs={setMsFor} onResubmit={setResubFor} onCancel={setCancelFor} onHistory={setHistFor} onReload={load} onComment={setCommFor} />
         </div>
       </section>
 
@@ -123,6 +124,7 @@ export default function Procurement() {
       {resubFor && <ResubmitDialog req={resubFor} projName={projName} onClose={() => setResubFor(null)} onSaved={() => { setResubFor(null); load(); }} />}
       {cancelFor && <CancelProcDialog req={cancelFor} onClose={() => setCancelFor(null)} onSaved={() => { setCancelFor(null); load(); }} />}
       {histFor && <HistoryDialog req={histFor} onClose={() => setHistFor(null)} />}
+      {commFor && <CommentsDialog req={commFor} user={user} onClose={() => setCommFor(null)} onSaved={() => load()} />}
     </div>
   );
 }
@@ -159,7 +161,7 @@ function ReplaceBtn({ requestId, docType, onReload }) {
 const itemsTotal = (r) => (r.items || []).reduce((s, i) => s + Number(i.est_cost || 0) * Number(i.quantity || 0), 0);
 const isOverBudget = (r) => Number(r.pi_amount) > 0 && itemsTotal(r) > Number(r.pi_amount) + 0.5;
 
-function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onCancel, onHistory, onReload }) {
+function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onCancel, onHistory, onReload, onComment }) {
   if (rows.length === 0) return <EmptyState icon={FileText} title="Nothing here" hint="Requests appear in this queue." />;
   const total = (r) => (r.milestones?.length
     ? r.milestones.reduce((s, m) => s + Number(m.amount || 0), 0)
@@ -257,6 +259,9 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                     {can(user, "accounts", "admin") && ["po_issued", "paid"].includes(r.status) && (
                       <button onClick={() => onMs(r)} className="btn-primary text-xs py-1.5" data-testid={`ms-${r.request_id}`}><Layers className="w-3.5 h-3.5" /> Payment structure</button>
                     )}
+                    {["po_issued", "paid"].includes(r.status) && (
+                      <button onClick={() => onComment(r)} className="btn-secondary text-xs py-1.5" data-testid={`comments-${r.request_id}`}><MessageSquare className="w-3.5 h-3.5" /> Comments{r.comments?.length ? ` (${r.comments.length})` : ""}</button>
+                    )}
                     {user?.role === "admin" && !["paid", "rejected", "cancelled"].includes(r.status) && (
                       <button onClick={() => onCancel(r)} className="btn-secondary text-xs py-1.5 text-bad" data-testid={`cancel-${r.request_id}`} title="Cancel this request"><Ban className="w-3.5 h-3.5" /> Cancel</button>
                     )}
@@ -265,6 +270,7 @@ function ProcTable({ rows, projName, user, onAction, onPo, onMs, onResubmit, onC
                      !(user?.role === "admin" && !["paid", "rejected", "cancelled"].includes(r.status)) &&
                      !(user?.role === "site_manager" && ["pending_clarification", "management_clarification", "rejected"].includes(r.status)) &&
                      !(can(user, "accounts", "admin") && ["approved", "po_issued", "paid"].includes(r.status)) &&
+                     !["po_issued", "paid"].includes(r.status) &&
                      <span className="text-xs text-ink2">—</span>}
                   </div>
                 </td>
@@ -489,6 +495,60 @@ function HistoryDialog({ req, onClose }) {
             )}
           </div>
         ))}
+      </div>
+    </Modal>
+  );
+}
+
+function CommentsDialog({ req, user, onClose, onSaved }) {
+  const [comments, setComments] = useState(req.comments || []);
+  const [text, setText] = useState("");
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const milestones = req.milestones || [];
+  const roleLabel = { site_manager: "Site Manager", admin: "Admin", management: "Management", accounts: "Accounts" };
+  const send = async () => {
+    if (!text.trim()) return toast.error("Write a comment first");
+    setBusy(true);
+    try {
+      const { data } = await api.post(`/procurement/${req.request_id}/comment`, { text, milestone_ref: ref || null });
+      setComments([...comments, data.comment]);
+      setText(""); setRef("");
+      onSaved();
+    } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+  };
+  return (
+    <Modal size="lg" title="Activity & payment conversation" subtitle={req.subject} onClose={onClose}
+      footer={<button onClick={onClose} className="btn-secondary">Close</button>}>
+      <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1 mb-4" data-testid="comments-thread">
+        {comments.length === 0 ? (
+          <div className="text-sm text-ink2 text-center py-6">No comments yet. Post an update on the work or payment below.</div>
+        ) : comments.map((c, i) => (
+          <div key={c.comment_id || i} className={`rounded-md border p-3 ${c.user_id === user?.id ? "border-brand/30 bg-brand/5" : "border-line bg-surfacealt/40"}`} data-testid={`comment-${i}`}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-ink">{c.user_name}</span>
+                <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-plate/10 text-plate font-semibold">{roleLabel[c.role] || c.role}</span>
+                {c.milestone_ref && <span className="text-[10px] px-1.5 py-0.5 rounded bg-clay/10 text-clay font-semibold">re: {c.milestone_ref}</span>}
+              </div>
+              <span className="text-[11px] text-ink2">{c.created_at ? new Date(c.created_at).toLocaleString() : ""}</span>
+            </div>
+            <div className="text-sm text-ink whitespace-pre-wrap">{c.text}</div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-line pt-3 space-y-2">
+        {milestones.length > 0 && (
+          <select value={ref} onChange={(e) => setRef(e.target.value)} className="input text-sm" data-testid="comment-milestone">
+            <option value="">General (no specific activity)</option>
+            {milestones.map((m, i) => <option key={i} value={m.label}>re: {m.label}{m.status === "paid" ? " (paid)" : ""}</option>)}
+          </select>
+        )}
+        <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} className="input" data-testid="comment-input"
+          placeholder="e.g. Activity A done, kindly release payment for Activity B" />
+        <div className="flex justify-end">
+          <button onClick={send} disabled={busy} className="btn-primary" data-testid="comment-send"><MessageSquare className="w-3.5 h-3.5" /> {busy ? "Posting…" : "Post comment"}</button>
+        </div>
       </div>
     </Modal>
   );

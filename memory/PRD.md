@@ -562,3 +562,12 @@ CVF-only work; Vacation Village (proj_53fb360c1f0a, 256 units) untouched through
 - Verified via curl + one screenshot (badge + replace link render). Preview procurement=0.
 - Also (PHASE 38b) added node_modules to .gitignore (root + frontend) so the lint gate skips dependencies.
 - ACTION FOR USER: Redeploy.
+
+---
+## PHASE 40 · Execution comment thread (Site Manager ↔ Accounts ↔ Admin ↔ Management) (2026-06)
+- Need: during work execution (after PO issued), stakeholders converse e.g. Site Manager "Activity A done, release payment for B"; Accounts owns the payment structure/milestones (confirmed unchanged).
+- User choices: all 4 roles can post & read; available from po_issued onward; comment can optionally be tagged to a specific activity/milestone; notify other stakeholders on each comment.
+- Backend: ProcurementRequest.comments [] added. POST /api/procurement/{id}/comment (ProcComment{text, milestone_ref?}), roles site_manager/admin/management/accounts, only when status in (po_issued, paid) else 400; empty text 400; management project-scoped. Pushes {comment_id,user_id,user_name,role,text,milestone_ref,created_at} and notifies every stakeholder (requester + all admins + all accounts + project management) except the author.
+- Frontend (Procurement.jsx): "Comments (N)" button (data-testid comments-<id>) in the Action column for ALL roles when status po_issued/paid → CommentsDialog (data-testid comments-thread) showing each comment with author + role badge + optional "re: <activity>" tag + timestamp; compose box (comment-input) with optional milestone dropdown (comment-milestone) and Post button (comment-send).
+- Verified: curl (before-PO 400, tagged 200, general 200, empty 400, persisted in order with role+tag) + screenshot (dialog renders, posted comment shows ADMIN badge + re: Activity A tag). Preview procurement=0.
+- ACTION FOR USER: Redeploy.
